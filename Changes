@@ -1,4 +1,11 @@
 
+0.25  2013-04-02 -mps
+  - Adds IPv6 support if Net::IP is installed
+  - switched from file/dir to DB|GDBM|NDBM (whichever is installed)
+    - automatically imports old format into DB (uses FAR less disk space)
+    - reporting even a million connections is practically instant
+  - added error messages where failures were previously handled silently
+
 0.22  2012-03-07 -mps
   - adjusted SYNOPSIS docs so usage syntax is clearer -ian
   - added POD docs for update feature

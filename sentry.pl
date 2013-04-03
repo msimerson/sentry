@@ -2,7 +2,7 @@
 use strict;
 use warnings;
 
-our $VERSION = '0.22';
+our $VERSION = '0.25';
 
 # configuration. Adjust these to taste (boolean, unless noted)
 my $root_dir              = '/var/db/sentry';
@@ -11,11 +11,17 @@ my $add_to_pf             = 0;
 my $add_to_ipfw           = 0;    # untested
 my $add_to_iptables       = 0;    # untested
 my $firewall_table        = 'sentry_blacklist';
-my $expire_from_blacklist = 90;   # in days, 0 to disable
+my $expire_block_days     = 90;   # 0 to never expire
 my $protect_ftp           = 1;
 my $protect_smtp          = 0;
 
+# perl modules from CPAN
+#use Net::IP;  # eval'ed in _get_db_key
+
 # perl built-in modules
+BEGIN { @AnyDBM_File::ISA = qw(DB_File GDBM_File NDBM_File) }
+use AnyDBM_File;
+use Fcntl qw(:DEFAULT :flock LOCK_EX LOCK_NB);
 use Data::Dumper;
 use English qw( -no_match_vars );
 use File::Copy;
@@ -32,6 +38,8 @@ Getopt::Long::GetOptions(
     'blacklist' => \my $blacklist,
     'report'    => \my $report,
     'update'    => \my $self_update,
+    'nfslock'   => \my $nfslock,  # TODO: document this
+    'dbdump'    => \my $db_dump,
     'verbose'   => \my $verbose,
     'help'      => \my $help,
 ) or die "error parsing command line options\n";
@@ -40,26 +48,44 @@ my $tcpd_denylist = _get_denylist_file();  # where to put hosts.deny entries
 my $latest_script = undef;
 check_setup() or pod2usage( -verbose => 1);
 
+my ($db_path,$db_lock,$db_tie,$db_key);
+my %ip_record = ( seen => 0, white => 0, black => 0 );
+
+_init_db();
+
 # dispatch the request
 if    ( $report    ) { do_report()    }
 elsif ( $connect   ) { do_connect()   }
 elsif ( $whitelist ) { do_whitelist() }
 elsif ( $blacklist ) { do_blacklist() }
 elsif ( $delist    ) { do_delist()    }
+elsif ( $self_update ) { do_version_check(); upgrade_to_db(); }
 elsif ( $help      ) { pod2usage( -verbose => 2) }
 else                 { pod2usage( -verbose => 1) };
 
+if ( $ip ) {
+  $db_tie->{$db_key} = join('^', $ip_record{seen}, $ip_record{white}, $ip_record{black} );
+};
+upgrade_to_db();
+untie $db_tie;
+close $db_lock;
+exit;
+
 sub is_valid_ip {
-
     return unless $ip;
-    if ( $ip =~ /^::ffff:/ ) {
-# we may see $ip in goofy IPv6 notation: ::ffff:208.75.177.98
-        my @bits = split(':', $ip);
-        $ip = pop @bits;  # grab everything after the last :
+    eval "use Net::IP";
+    if ( ! $@ ) {
+        new Net::IP ( $ip ) or die Net::IP::Error();
+        print "ip $ip is valid\n" if $verbose;
+        return $ip
     };
-    return if grep( /\./, split( //, $ip ) ) != 3;    # need 3 dots
 
-    my @octets = split( /\./, $ip );
+    if ( $ip =~ /^::ffff:/ ) {
+# we have seen $ip in this IPv6 notation: ::ffff:208.75.177.98
+        ($ip) = (split /:/, $ip)[-1]; # grab everything after the last :
+    };
+
+    my @octets = split /\./, $ip;
     return unless @octets == 4;                       # need 4 octets
 
     return if $octets[0] < 1;
@@ -75,23 +101,19 @@ sub is_valid_ip {
 };
 
 sub is_whitelisted {
-    return if ! -f _get_path('white');
-
+    return if ! $ip_record{white};
     print "is whitelisted\n" if $verbose;
-    do_unblacklist() if &is_blacklisted;
+    do_unblacklist() if is_blacklisted();
     return 1;
 };
 
 sub is_blacklisted {
-    return if ! -f _get_path('black');
-
+    return if ! $ip_record{black};
     print "is blacklisted\n" if $verbose;
-
-    if ( $expire_from_blacklist ) {
-        my ($last_modified) = (stat( _get_path('black' )))[9]; # mtime
-        my $days_old = ( time() - $last_modified ) / 3600 / 24;
-        do_unblacklist() if $days_old > $expire_from_blacklist;
-    };
+    return 1 if ! $expire_block_days;
+    my $bl_ts = $ip_record{black};
+    my $days_old = ( time() - $bl_ts ) / 3600 / 24;
+    do_unblacklist() if $days_old > $expire_block_days;
     return 1;
 };
 
@@ -109,7 +131,7 @@ sub check_setup {
     do_version_check() if ( -r $root_dir && -w $root_dir );
     configure_tcpwrappers();
 
-    return 1 if $report;
+    return 1 if ( $report || $self_update );
 
     return if ! is_valid_ip();
 
@@ -147,9 +169,7 @@ $spawn\n\n";
         return;
     }
 
-    my $write_mode = '>>';
-    $write_mode = '>' if ! -e '/etc/hosts.deny';
-    open FH, $write_mode, '/etc/hosts.deny' 
+    open FH, '>>', '/etc/hosts.deny' 
         or warn "could not write to /etc/hosts.deny: $!" and return;
     print FH "$spawn\n";
     close FH;
@@ -158,30 +178,20 @@ $spawn\n\n";
 sub install_myself {
     my $script_loc = _get_script_location();
     print "installing $0 to $script_loc\n" if $verbose;
-    copy( $0, $script_loc ) or warn "unable to copy $0 to $script_loc: $!\n";
+    copy( $0, $script_loc ) or do {
+        warn "unable to copy $0 to $script_loc: $!\n";
+        return;
+    };
     chmod 0755, $script_loc;
     print "installed update to $script_loc\n";
     return 1;
 };
 
-sub install_from_web {
-    return if ! $latest_script;
-    my $script_loc = _get_script_location();
-
-    print "installing latest sentry.pl to $script_loc\n";
-    open my $FH, '>', $script_loc or die "oops: $!\n";
-    print $FH $latest_script;
-    close $FH;
-    chmod 0755, $script_loc;
-    my ($latest_ver) = $latest_script =~ /VERSION\s*=\s*\'([0-9\.]+)\'/;
-    print "upgraded $script_loc to $latest_ver\n";
-    return 1;
-};
-
 sub do_version_check {
 
-    my $installed_ver = _get_installed_version();
-    install_myself() and return if ! $installed_ver;
+    my $installed_ver = _get_installed_version() or do {
+            install_myself() and return 1;
+        };
 
     return if ! $self_update;
 
@@ -196,43 +206,47 @@ sub do_version_check {
     };
 
     if ($installed_ver >= $release_ver && $installed_ver >= $this_ver) {
-        warn "you are running the latest version of sentry ($installed_ver)\n" if $verbose;
+        print "the latest version ($installed_ver) is installed\n";
         return;
     };
 
     install_myself() and return if $this_ver > $release_ver;
     install_from_web() if $release_ver > $this_ver;
 
-    return;
+    return 1;
 };
 
+sub install_from_web {
+    return if ! $latest_script;
+    my $script_loc = _get_script_location();
+
+    print "installing latest sentry.pl to $script_loc\n";
+    open my $FH, '>', $script_loc or die "error: $!\n";
+    print $FH $latest_script;
+    close $FH;
+    chmod 0755, $script_loc;
+    my ($latest_ver) = $latest_script =~ /VERSION\s*=\s*\'([0-9\.]+)\'/;
+    print "upgraded $script_loc to $latest_ver\n";
+    return 1;
+};
 
 sub do_connect {
+    $ip_record{seen}++;
 
-    my $ip_path = _get_path('seen');
-    _make_path($ip_path) if ! -f $ip_path;
-    _log_connection($ip_path);
-
-    exit if is_whitelisted();
-    exit if is_blacklisted();
-
-    my $seen_count = _count_lines($ip_path);
-    exit if $seen_count < 3;
+    return if is_whitelisted();
+    return if is_blacklisted();
+    return if $ip_record{seen} < 3;
 
     _parse_ssh_logs();
     _parse_ftp_logs()   if $protect_ftp;
     _parse_mail_logs()  if $protect_smtp;
-    exit;
 };
 
 sub do_whitelist {
-    my $ip_path = _get_path('white');
-    _make_path($ip_path) if ! -f $ip_path;
-
-    #printf( " called by %s, %s, %s\n", caller );
     print "whitelisting $ip\n" if $verbose;
 
-    link _get_path('seen' ), $ip_path;
+    #printf( " called by %s, %s, %s\n", caller );
+    $ip_record{white} = time;
 
     _allow_tcpwrappers() if $add_to_tcpwrappers;
     _allow_pf()          if $add_to_pf;
@@ -242,14 +256,9 @@ sub do_whitelist {
 };
 
 sub do_blacklist {
-
-    my $ip_path = _get_path('black');
-    _make_path($ip_path) if ! -f $ip_path;
-
-    #printf( " called by %s, %s, %s\n", caller );
     print "blacklisting $ip\n" if $verbose;
 
-    link _get_path('seen'), $ip_path;
+    $ip_record{black} = time;
 
     _block_tcpwrappers() if $add_to_tcpwrappers;
     _block_pf()          if $add_to_pf;
@@ -259,21 +268,13 @@ sub do_blacklist {
 };
 
 sub do_delist {
-
-    print "delisting $ip\n" if $verbose;
     do_unblacklist();
     do_unwhitelist();
 };
 
 sub do_unblacklist {
-
     print "unblacklisting $ip\n" if $verbose;
-    my $file = _get_path('black');
-
-    if ( -f $file ) {
-        unlink $file or warn "unblacklisting failed: $!\n";
-        print "removed file $file\n";
-    };
+    $ip_record{black} = 0;
 
     _unblock_tcpwrappers() if $add_to_tcpwrappers;
     _unblock_pf()          if $add_to_pf;
@@ -283,51 +284,33 @@ sub do_unblacklist {
 };
 
 sub do_unwhitelist {
-
     print "unwhitelisting $ip\n" if $verbose;
-    my $file = _get_path('white');
-    return 1 if ! -f $file;
-
-    unlink $file or warn "delisting from whitelist failed: $!\n";
-    return;
+    $ip_record{white} = 0;
 };
 
 sub do_report {
 
-    if ( ! -r $root_dir ) {
-        warn "you cannot read $root_dir: $!\n";
-        exit;
-    };
+    die "you cannot read $root_dir: $!\n" if ! -r $root_dir;
 
-    if ( $ip ) {
-        my $path = _get_path('seen');
-
-        my $count = _count_lines($path);
-        printf "%4.0f connections from $ip\n", $count;
-
-        if ( -f _get_path('white' ) ) { print "\tand it is whitelisted\n"; };
-        if ( -f _get_path('black' ) ) { print "\tand it is blacklisted\n"; };
-    };
+    upgrade_to_db();
 
     return if $ip && ! $verbose;
 
-    print "   -------- summary ---------\n";
-    foreach ( qw/ seen black white / ) {
-        my @files = <$root_dir/$_/*/*/*/*>;
-        my $count = scalar @files;
-        if ( $_ eq 'seen' ) {
-            printf "%4.0f unique IPs have connected", $count;
-            chomp @files;
-            my $total_connects = 0;
-            foreach ( @files ) {
-                $total_connects += _count_lines($_);
-            };
-            print " $total_connects times\n";
-        }
-        else {
-            printf "%4.0f IPs are ${_}listed\n", $count;
-        };
+    my $unique_ips = keys %$db_tie;
+    my %counts = ( seen => 0, white => 0, black => 0 );
+    foreach my $key ( keys %$db_tie ) {
+        my @vals = _parse_db_val( $db_tie->{ $key } );
+        $counts{seen}  += $vals[0] || 0;
+        $counts{white} ++ if $vals[1];
+        $counts{black} ++ if $vals[2];
+        print "$key: seen=$vals[0], w=$vals[1]\n" if $db_dump;
     };
+
+    print "   -------- summary ---------\n";
+    printf "%4.0f unique IPs have connected", $unique_ips;
+    print " $counts{seen} times\n";
+    printf "%4.0f IPs are whitelisted\n", $counts{white};
+    printf "%4.0f IPs are blacklisted\n", $counts{black};
     print "\n";
 
     if ( $ip ) {
@@ -339,8 +322,14 @@ sub do_report {
 
 sub _get_installed_version {
     my $script_loc = "$root_dir/sentry.pl";
-    return if ! -e $script_loc;
-    my ($ver) = `grep VERSION $script_loc` =~ /VERSION\s*=\s*\'([0-9\.]+)\'/ or return;
+    if ( ! -e $script_loc ) {
+        warn "sentry not installed\n";
+        return;
+    };
+    my ($ver) = `grep VERSION $script_loc` =~ /VERSION\s*=\s*\'([0-9\.]+)\'/ or do { 
+            warn "unable to determine installed version"; 
+            return; 
+        };
     print "installed version is $ver\n" if $verbose;
     return $ver;
 };
@@ -349,7 +338,7 @@ sub _get_latest_release_version {
 
     eval "require LWP::UserAgent";
     if ( $EVAL_ERROR ) {
-        warn "LWP::UserAgent not installed, could not determine latest version of sentry\n"; 
+        warn "LWP::UserAgent not installed, cannot determine latest version\n"; 
         return 0;
     };
 
@@ -358,7 +347,11 @@ sub _get_latest_release_version {
     $latest_script = $response->decoded_content;
     my ($latest_ver) = $latest_script =~ /VERSION\s*=\s*\'([0-9\.]+)\'/;
 
-    return 0 if ! $latest_ver;  # couldn't determine latest version
+    if ( ! $latest_ver ) {
+        warn "could not determine latest version\n";
+        return 0;
+    };
+    print "most recent version: $latest_ver\n" if $verbose;
     return $latest_ver;
 };
 
@@ -366,62 +359,28 @@ sub _get_script_location {
     return "$root_dir/sentry.pl";
 };
 
-sub _get_path {
-    my $dir = shift;
-
-    my @parts = split(/\./, $ip);
-    my $path = "$root_dir/$dir/" . join '/', @parts;
-    #print "path: $path\n";
-    return $path;
-};
-
-sub _make_path {
-    my $path = shift;
-
-    my @parts = split(/\//, $path);  # split path into array
-    pop @parts;                      # discard the filename
-    $path = join('/', @parts);       # put it back together
-
-    return 1 if -d $path;            # exit if it exists
-    mkpath( $path ) and return 1;    # create it
-
-    warn "unable to create $path\n";
-    return;
-}
-
-sub _count_lines {
-    my $path = shift;
-
-    my $count;
-    return 0 if ! -f $path;
-
-    open my $FH, '<', $path;
-    while ( <$FH> ) { $count++ };
-    close $FH;
-    return $count;
-};
-
 sub _get_denylist_file {
 
-# Linux and FreeBSD systems have custom versions of libwrap that allow you 
-# to store IP lists in file referenced from hosts.allow or hosts.deny. 
+# Linux and FreeBSD systems have custom versions of libwrap that permit
+# storing IP lists in file referenced from hosts.allow or hosts.deny. 
 # On those systems, dump the blacklisted IPs into a special file
 
     return "$root_dir/hosts.deny" if $OSNAME =~ /linux|freebsd/i;
     return "/etc/hosts.deny";
 };
 
-sub _log_connection {
-    my $ip_path = shift;
 
-    open my $SEEN, '>>', $ip_path 
-        or warn "unable to open for append: $ip_path: $!" and return;
-    print $SEEN time() . "\n";
-    close $SEEN;
+sub _count_lines {
+    my $path = shift;
 
-    return;
+    return 0 if ! -f $path;
+
+    my $count;
+    open my $FH, '<', $path;
+    while ( <$FH> ) { $count++ };
+    close $FH;
+    return $count;
 };
-
 
 sub _allow_tcpwrappers {
 
@@ -434,7 +393,7 @@ sub _allow_tcpwrappers {
 
     my $err = "failed to delist from tcpwrappers\n";
     my $tmp = "$tcpd_denylist.tmp";
-    open(TMP, '>', $tmp) or warn $err and return;
+    open TMP, '>', $tmp           or warn $err and return;
     open CUR, '<', $tcpd_denylist or warn $err and return;
     while ( <CUR> ) {
         next if $_ =~ / $ip /;  # discard the IP we want to whitelist
@@ -613,8 +572,8 @@ sub _parse_ssh_logs {
 # fail safely. If we can't parse the logs, skip the white/blacklist steps
     return if ! $ssh_attempts;
 
-    if ( $ssh_attempts->{success} ) { do_whitelist(); exit; };
-    if ( $ssh_attempts->{naughty} ) { do_blacklist(); exit; };
+    if ( $ssh_attempts->{success} ) { do_whitelist(); return; };
+    if ( $ssh_attempts->{naughty} ) { do_blacklist(); return; };
 
 # do not use $seen_count here. If the ssh log parsing failed for any reason, 
 # legit users would not get whitelisted, and then after 10 attempts they
@@ -727,8 +686,8 @@ sub _get_sshd_log_location {
 sub _parse_mail_logs {
     my $attempts = _get_mail_logs() or return;
 
-    if ( $attempts->{success} ) { do_whitelist(); exit; };
-    if ( $attempts->{naughty} ) { do_blacklist(); exit; };
+    if ( $attempts->{success} ) { do_whitelist(); return; };
+    if ( $attempts->{naughty} ) { do_blacklist(); return; };
 
     do_blacklist() if ($attempts->{total} && $attempts->{total} > 10);
 };
@@ -795,8 +754,8 @@ sub _parse_ftp_logs {
 
     print Dumper(\%count) if $verbose;
 
-    if ( $count{success} ) { do_whitelist(); exit; };
-    if ( $count{naughty} ) { do_blacklist(); exit; };
+    if ( $count{success} ) { do_whitelist(); return; };
+    if ( $count{naughty} ) { do_blacklist(); return; };
 
     do_blacklist() if $count{total} > 10;
 }
@@ -804,6 +763,7 @@ sub _parse_ftp_logs {
 sub _get_ftpd_log_location {
     my @log_files;
     push @log_files, 'xferlog';      # freebsd, debian
+    push @log_files, 'ftp.log';      # Mac OS X
     push @log_files, 'auth.log';
 
     foreach ( @log_files ) {
@@ -815,17 +775,142 @@ sub _get_ftpd_log_location {
 };
 
 
+sub upgrade_to_db {
+    my @files = glob "$root_dir/seen/*/*/*/*";
+    return if ! @files;
+    print "upgrading to DB format\n";
+
+    foreach my $f ( @files ) {
+        my $a_ip = join('.', (split /\//, $f)[-4,-3,-2,-1]);
+        my $key = _get_db_key( $a_ip );
+        my $count = _count_lines( $f );
+        my $white_path = $f; $white_path =~ s/seen/white/;
+        my $black_path = $f; $black_path =~ s/seen/black/;
+        print "$f \t $key $a_ip $count\n";
+        $db_tie->{$key} = join('^', $count, -f $white_path ? 1 : 0, -f $black_path ? 1 : 0);
+        unlink $white_path if -f $white_path;
+        unlink $black_path if -f $black_path;
+        unlink $f;
+    };
+    system "find $root_dir -type dir -empty -delete"
+};
+
+sub _init_db {
+    $db_path = _get_db_location() or exit;
+    $db_lock = _get_db_lock( $db_path ) or exit;
+    $db_tie  = _get_db_tie( $db_path, $db_lock ) or exit;
+
+    if ( ! $ip ) { print "no IP, skip info\n"; return; };
+
+    $db_key  = _get_db_key() or die "unable to get DB key";
+    if ( $db_tie->{ $db_key } ) {   # we've seen this IP before
+        my @vals = _parse_db_val( $db_tie->{ $db_key } );
+        $ip_record{seen}  = $vals[0];
+        $ip_record{white} = $vals[1];
+        $ip_record{black} = $vals[2];
+    };
+    printf "%4.0f connections from $ip (key: $db_key)\n", $ip_record{seen};
+    print "\tand it is whitelisted\n" if $ip_record{white};
+    print "\tand it is blacklisted\n" if $ip_record{black};
+};
+
+sub _parse_db_val {
+    return split /\^/, shift;  # using ^ char as delimiter
+};
+
+sub _get_db_key {
+    my $lip = shift || $ip;
+    eval "use Net::IP";
+    if ( $@ ) {
+        warn "Net::IP not installed. Features degraded.\n";
+        return unpack 'N', pack 'C4', split '\.', $lip;  # works for IPv4 only
+    };
+    return Net::IP->new( $lip )->intip or die "unable to convert $lip to an integer\n";
+};
+
+sub _get_db_tie {
+    my ( $db, $lock ) = @_;
+
+    tie( my %db, 'AnyDBM_File', $db, O_CREAT|O_RDWR, 0600) or do {
+        warn "error, tie to database $db failed: $!";
+        close $lock;
+        return;
+    };
+    return \%db;
+};
+
+sub _get_db_location {
+
+    # Setup database location
+    my @candidate_dirs = ( $root_dir, "/var/db/sentry", "/var/db", '.' );
+
+    my $dbdir;
+    for my $d ( @candidate_dirs ) {
+        next if ! $d || ! -d $d;   # impossible
+        $dbdir = $d;
+        last;   # first match wins
+    }
+    my $db = "$dbdir/sentry.dbm";
+    print "using $db as database\n" if $verbose;
+    return $db;
+};      
+ 
+sub _get_db_lock {
+    my $db = shift; 
+        
+    return _get_db_lock_nfs($db) if $nfslock;
+    
+    # Check denysoft db
+    open( my $lock, ">$db.lock" ) or do {
+        warn "error, opening lockfile failed: $!";
+        return;
+    };
+
+    flock( $lock, LOCK_EX ) or do {
+        warn "error, flock of lockfile failed: $!";
+        close $lock;
+        return;
+    };
+    
+    return $lock;
+}
+
+sub _get_db_lock_nfs {
+    my $db = shift;
+
+    require File::NFSLock;
+
+    ### set up a lock - lasts until object looses scope
+    my $nfslock = new File::NFSLock {
+        file      => "$db.lock",
+        lock_type => LOCK_EX|LOCK_NB,
+        blocking_timeout   => 10,      # 10 sec
+        stale_lock_timeout => 30 * 60, # 30 min
+    } or do {
+        warn "error, nfs lockfile failed: $!";
+        return;
+    };
+
+    open( my $lock, "+<$db.lock") or do {
+        warn "error, opening nfs lockfile failed: $!";
+        return;
+    };
+
+    return $lock;
+};
+
+
 __END__
 
 =head1 NAME
  
-sentry - safe and effective protection against bruteforce attacks
+Sentry - safe and effective protection against bruteforce attacks
  
 
 =head1 SYNOPSIS
  
- sentry --ip=N.N.N.N [ --connect | --blacklist | --whitelist | --delist ]
- sentry --report [--verbose --ip=N.N.N.N ]
+ sentry --ip=<ipv4 or ipv6 IP> [ --whitelist | --blacklist | --delist | --connect ]
+ sentry --report [--verbose --ip=<ipv4 or ipv6 address> ]
  sentry --help
  sentry --update
 
@@ -838,42 +923,33 @@ sentry - safe and effective protection against bruteforce attacks
 
 =head1 DESCRIPTION
  
-Sentry detects and prevents bruteforce attacks against sshd using minimal system resources.
+Sentry limits bruteforce attacks using minimal system resources.
 
 =head2 SAFE
 
-To prevent inadvertant lockouts, Sentry manages a whitelist of IPs that have connected more than 3 times and succeeded at least once. Never again will that forgetful colleague behind the office NAT router get us locked out of our system. Nor the admin whose script just failed to login 12 times in 2 seconds.
+To prevent inadvertant lockouts, Sentry manages a whitelist of IPs that connect more than 3 times and succeed at least once. A forgetful colleague or errant script running behind the office NAT is far less likely to get the entire office locked out than with many bruteforce blockers.
 
-Sentry includes support for adding IPs to a firewall. Support for IPFW, PF, ipchains is included. Firewall support is disabled by default. This is because firewall rules may terminate existing session(s) to the host (attn IPFW users). Get your IPs whitelisted (connect 3x or use --whitelist) before enabling the firewall option.
+Sentry includes firewall support for IPFW, PF, and ipchains. It is disabled by default. Be careful though, adding dynamic firewall rules may terminate existing sessions (attn IPFW users). Whitelist your IPs (connect 3x or use --whitelist) before enabling the firewall option.
 
 =head2 SIMPLE
 
-Sentry has an extremely simple database for tracking IPs. This makes it very
-easy for administrators to view and manipulate the database using shell commands
-and scripts. See the EXAMPLES section.
+Sentry has a compact database for tracking IPs. It records the number of connects and the date when an IP was white or blacklisted.
 
-Sentry is written in perl, which is installed everywhere you find sshd. It has no
-dependencies. Installation and deployment is extremely simple.
+Sentry is written in perl, which is installed practically everywhere sshd is. The only dependency is Net::IP for IPv6 handling. Sentry installation is extremely simple.
 
 =head2 FLEXIBLE
 
-Sentry supports blocking connection attempts using tcpwrappers and several 
-popular firewalls. It is easy to extend sentry to support additional
-blocking lists.
+Sentry supports blocking connection attempts using tcpwrappers and several popular firewalls. It is easy to extend Sentry to support additional blocking lists.
 
-Sentry was written to protect the SSH daemon but anticipates use with other daemons. SMTP support is planned. As this was written, the primary attack platform in use is bot nets comprised of exploited PCs on high-speed internet connections. These bots are used for carrying out SSH attacks as well as spam delivery. Blocking bots prevents multiple attack vectors.
+Sentry was written to protect the SSH daemon but is also used for FTP and SMTP protection. A primary attack platform is bot nets. The bots are used for carrying out SSH attacks as well as spam delivery. Blocking on multiple attack criteria reduces overall abuse.
 
-The programming style of sentry makes it easy to insert code for additonal functionality.
+The programming style of Sentry makes it easy to insert code for additional functionality.
 
 =head2 EFFICIENT
 
-The primary goal of Sentry is to minimize the resources an attacker can steal, while consuming minimal resources itself. Most bruteforce blocking apps (denyhosts, fail2ban, sshdfilter) expect to run as a daemon, tailing a log file. That requires a language interpreter to always be running, consuming at least 10MB of RAM. A single hardware node with dozens of virtual servers will lose hundreds of megs to daemon protection.
+A goal of Sentry is to minimize resource abuse. Many bruteforce blockers (denyhosts, fail2ban, sshdfilter) expect to run as a daemon, tailing a log file. That requires an interpreter to always be running, consuming CPU and RAM. A single hardware node with dozens of virtual servers loses hundreds of megs of RAM to daemon protection.
 
-Sentry uses resources only when connections are made. The worse case scenario is the first connection made by an IP, since it will invoke a perl interpreter. For most connections, Sentry will append a timestamp to a file, stat for the presense of another file and exit. 
-
-Once an IP is blacklisted for abuse, whether by tcpd or a firewall, the resources it can consume are practically zero.
-
-Sentry is not particularly efficient for reporting. The "one file per IP" is superbly minimal for logging and blacklisting, but nearly any database would perform better for reporting. Expect to wait a few seconds for sentry --report.
+Sentry uses resources only when connections are made, and then only a few times before an IP is white/blacklisted. Once an IP is blacklisted for abuse, the resources it can abuse are neglible.
  
 =head1 REQUIRED ARGUMENTS
 
@@ -881,14 +957,14 @@ Sentry is not particularly efficient for reporting. The "one file per IP" is sup
 
 =item ip
 
-An IPv4 address. The IP should come from a reliable source that is 
+An IPv4 or IPv6 address. The IP should come from a reliable source that is 
 difficult to spoof. Tcpwrappers is an excellent source. UDP connections 
 are a poor source as they are easily spoofed. The log files of TCP daemons
 can be good source if they are parsed carefully to avoid log injection attacks.
 
 =back
  
-All actions except B<report> and B<help> require an IP address. The IP address can
+All actions except B<report> and B<help> require an IP address. The IP can
 be manually specified by an administrator, or preferably passed in by a TCP 
 server such as tcpd (tcpwrappers), inetd, or tcpserver (daemontools). 
 
@@ -908,7 +984,7 @@ and make it immune to future connection tests.
 =item delist
 
 remove an IP from the white and blacklists. This is useful for testing
-that sentry is working as expected.
+that Sentry is working as expected.
 
 =item connect
 
@@ -917,7 +993,7 @@ and the time. See CONNECT.
 
 =item update
 
-Check the most recent version of sentry against the installed version and update if a newer version is available.
+Check the most recent version of Sentry against the installed version and update if a newer version is available.
 
 =back 
 
@@ -929,14 +1005,6 @@ Check the most recent version of sentry against the installed version and update
     9 connections from 24.19.45.95
         and it is whitelisted
 
-=head2 HOME GATEWAY REPORT
-
- $ /var/db/sentry/sentry.pl -r
-   -------- summary ---------
-   1614 unique IPs have connected 76525 times
-   1044 IPs are blacklisted
-     18 IPs are whitelisted
-
 =head2 WEB SERVER REPORT
 
  $ /var/db/sentry/sentry.pl -r
@@ -945,39 +1013,13 @@ Check the most recent version of sentry against the installed version and update
     40 IPs are blacklisted
      4 IPs are whitelisted
 
-=head2 EUROPEAN DNS MIRROR
+=head2 EURO MIRROR
 
  $ /var/db/sentry/sentry.pl -r
  -------- summary ---------
  3484 unique IPs have connected 15391 times
  1127 IPs are blacklisted
     6 IPs are whitelisted
-
-=head2 SHELL COMMANDS
-
-View the total number of connections: 
-
-  cat /var/db/sentry/seen/*/*/*/* | wc -l
-       57
-
-the number of unique IPs that have connected:
-
-  ls /var/db/sentry/seen/*/*/*/* | wc -l
-        4
-
-the timestamps for every connection 10.0.1.193 made:
-
-  for ts in `cat /var/db/sentry/seen/10/0/1/193`; do date -r $ts; done
-
-    Wed Feb 25 20:18:55 PST 2009
-    Wed Feb 25 20:18:57 PST 2009
-    ....
-    Wed Feb 25 21:18:45 PST 2009
-
-check if 10.0.1.193 is whitelisted
-
-  test -f /var/db/sentry/white/10/0/1/193 && echo yes
-  yes
 
 =head1 NAUGHTY
 
@@ -989,10 +1031,10 @@ naughty. See the configuration section in the script related settings.
 
 =head1 CONNECT
 
-When new connections arrive, the connect method will log the attempt
-and the time. If the IP is white or blacklisted, it will exit immediately.
+When new connections arrive, the connect method will log the attempt.
+If the IP is already white or blacklisted, it exits immediately.
 
-Next, sentry checks to see if it has seen the IP more than 3 times. If so, 
+Next, Sentry checks to see if it has seen the IP more than 3 times. If so,
 check the logs for successful, failed, and naughty attempts from that IP.
 If there are any successful logins, whitelist the IP and exit. 
 
@@ -1027,9 +1069,7 @@ as it runs.
 
 =head1 DEPENDENCIES
  
-Sentry uses only modules built into perl. Additional modules may be used in 
-the future but Sentry will not depend upon them. In other words, if you extend
-Sentry with modules are aren't built-ins, also include a fallback method.
+  Net::IP, for IPv6 support.
 
 =head1 BUGS AND LIMITATIONS
  
@@ -1049,7 +1089,7 @@ Those who came before me: denyhosts, fail2ban, sshblacklist, et al
 
 =head1 LICENCE AND COPYRIGHT
  
-Copyright (c) 2012 The Network People, Inc. http://www.tnpi.net/
+Copyright (c) 2013 The Network People, Inc. http://www.tnpi.net/
 
 This module is free software; you can redistribute it and/or
 modify it under the same terms as Perl itself. See L<perlartistic>.
