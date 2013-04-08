@@ -602,7 +602,7 @@ sub _get_ssh_logs {
 # Anchor any regexps or otherwise exclude the user modifiable portions of the 
 # log entries when parsing 
 
-        my @bits = split ' ', $line;  # This is more efficient than a regexp
+        my @bits = split / /, $line;  # This is more efficient than a regexp
         if    ( $bits[5] eq 'Accepted' ) { $count{success}++  } 
         elsif ( $bits[5] eq 'Invalid'  ) { $count{naughty}++  } 
         elsif ( $bits[5] eq 'Failed'   ) { $count{failed}++   }
@@ -729,7 +729,7 @@ sub _parse_ftp_logs {
     while ( my $line = <FH> ) {
         chomp $line;
 
-        my ($mon, $day, $time, $host, $proc, @mess) = split ' ', $line;
+        my ($mon, $day, $time, $host, $proc, @mess) = split / /, $line;
         my $mess = join(' ', @mess);
 
         next if ! $proc;
@@ -823,7 +823,7 @@ sub _get_db_key {
     eval "use Net::IP";
     if ( $@ ) {
         warn "Net::IP not installed. Features degraded.\n";
-        return unpack 'N', pack 'C4', split '\.', $lip;  # works for IPv4 only
+        return unpack 'N', pack 'C4', split /\./, $lip;  # works for IPv4 only
     };
     return Net::IP->new( $lip )->intip or die "unable to convert $lip to an integer\n";
 };
