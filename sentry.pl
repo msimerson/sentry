@@ -2,7 +2,7 @@
 use strict;
 use warnings;
 
-our $VERSION = '0.25';
+our $VERSION = '0.26';
 
 # configuration. Adjust these to taste (boolean, unless noted)
 my $root_dir              = '/var/db/sentry';
