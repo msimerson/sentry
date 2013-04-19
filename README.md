@@ -243,7 +243,7 @@ Those who came before me: denyhosts, fail2ban, sshblacklist, et al
 # LICENCE AND COPYRIGHT
  
 
-Copyright (c) 2012 The Network People, Inc. http://www.tnpi.net/
+Copyright (c) 2013 The Network People, Inc. http://www.tnpi.net/
 
 This module is free software; you can redistribute it and/or
 modify it under the same terms as Perl itself. See [perlartistic](http://search.cpan.org/perldoc?perlartistic).
