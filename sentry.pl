@@ -103,7 +103,6 @@ sub is_valid_ip {
 sub is_whitelisted {
     return if ! $ip_record{white};
     print "is whitelisted\n" if $verbose;
-    do_unblacklist() if is_blacklisted();
     return 1;
 };
 
@@ -511,15 +510,21 @@ sub _unblock_tcpwrappers {
         return;
     };
 
-    if ( ! -w $tcpd_denylist || ! -w "$tcpd_denylist.tmp" ) {
-        warn "file $tcpd_denylist or enclosing dir is not writable!\n";
+    if ( ! -w $tcpd_denylist ) {
+        warn "file $tcpd_denylist is not writable!\n";
+        return;
+    };
+
+    my $tmp = "$tcpd_denylist.tmp";
+    if ( -e $tmp && ! -w $tmp ) {
+        warn "file $tmp is not writable!\n";
         return;
     };
 
     my $error = "could not remove $ip from blocklist: $!\n";
 
     # open a temp file
-    open (my $TMP, '>', "$tcpd_denylist.tmp") or warn $error and return;
+    open (my $TMP, '>', $tmp) or warn $error and return;
 
     # cat the current hosts.deny to the temp file, omitting $ip
     open my $BL, '<', $tcpd_denylist or warn $error and return;
@@ -531,7 +536,7 @@ sub _unblock_tcpwrappers {
     close $TMP;
 
     # install the new file
-    move( "$tcpd_denylist.tmp", $tcpd_denylist );
+    move( $tmp, $tcpd_denylist );
 };
 
 sub _unblock_ipfw {
