@@ -1,6 +1,7 @@
 
 0.26 
   - added the skeleton of a CPAN dist
+  - fix for unblacklist not removing from tcpwrappers (sn3ak)
  
 0.25  2013-04-02 -mps
   - Adds IPv6 support if Net::IP is installed
