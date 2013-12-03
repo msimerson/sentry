@@ -1,4 +1,8 @@
 
+0.27  2013-12-03
+  - added fix for ssh log parsing, m/ / -> m/\s+/ for WS split
+  - added dovecot log parsing
+
 0.26 
   - added the skeleton of a CPAN dist
   - fix for unblacklist not removing from tcpwrappers (sn3ak)

@@ -2,7 +2,7 @@
 use strict;
 use warnings;
 
-our $VERSION = '0.26';
+our $VERSION = '0.27';
 
 # configuration. Adjust these to taste (boolean, unless noted)
 my $root_dir              = '/var/db/sentry';
@@ -14,6 +14,7 @@ my $firewall_table        = 'sentry_blacklist';
 my $expire_block_days     = 90;   # 0 to never expire
 my $protect_ftp           = 1;
 my $protect_smtp          = 0;
+my $protect_mua           = 1;    # dovecot POP3 & IMAP
 
 # perl modules from CPAN
 #use Net::IP;  # eval'ed in _get_db_key
@@ -238,7 +239,7 @@ sub do_connect {
 
     _parse_ssh_logs();
     _parse_ftp_logs()   if $protect_ftp;
-    _parse_mail_logs()  if $protect_smtp;
+    _parse_mail_logs()  if $protect_smtp || $protect_mua;
 };
 
 sub do_whitelist {
@@ -598,6 +599,7 @@ sub _get_ssh_logs {
     open FH, $logfile or warn "unable to read $logfile: $!\n" and return;
     while ( my $line = <FH> ) {
         chomp $line;
+
         next if $line !~ / sshd/;
         next if $line !~ /$ip/;
 
@@ -607,7 +609,9 @@ sub _get_ssh_logs {
 # Anchor any regexps or otherwise exclude the user modifiable portions of the 
 # log entries when parsing 
 
-        my @bits = split / /, $line;  # This is more efficient than a regexp
+# Dec  3 12:14:16 pe sshd[4026]: Accepted publickey for tnpimatt from 67.171.0.90 port 45189 ssh2
+
+        my @bits = split /\s+/, $line;  # split on WS is more efficient
         if    ( $bits[5] eq 'Accepted' ) { $count{success}++  } 
         elsif ( $bits[5] eq 'Invalid'  ) { $count{naughty}++  } 
         elsif ( $bits[5] eq 'Failed'   ) { $count{failed}++   }
@@ -707,13 +711,60 @@ sub _get_mail_logs {
 # Naughty would be reserved for more than 3 message with a spam score
 # above 10. Or something like that.
 
-    return;
-    return {
-        success => undef,
-        naughty => undef,
-        failed  => undef,
-        errors  => undef,
+    my $logfile = _get_mail_log_location();
+    return if ! -f $logfile;
+    print "checking for email logins in $logfile\n" if $verbose;
+
+    open FH, $logfile or do {
+        warn "unable to read $logfile: $!\n";
+        return;
     };
+
+    my %count;
+    while ( my $line = <FH> ) {
+        chomp $line;
+        next if $line !~ /$ip/;  # ignore lines for other IPs
+
+# Dec  3 05:42:59 pe dovecot: pop3-login: Aborted login (auth failed, 1 attempts): user=<www>, method=PLAIN, rip=37.46.80.95, lip=18.28.0.30
+# Dec  3 05:43:06 pe dovecot: pop3-login: Disconnected (auth failed, 2 attempts): user=<info@***.edu>, method=PLAIN, rip=93.153.9.210, lip=18.28.0.30
+# Dec  3 00:04:45 pe dovecot: imap-login: Login: user=<john@a**g***ar.com>, method=PLAIN, rip=127.0.0.24, lip=127.0.0.6, mpid=81292, session=<AnAB/AAAY>
+# Dec  3 00:04:47 pe dovecot: imap-login: Login: user=<lyn@l*****er.com>, method=CRAM-MD5, rip=65.100.142.26, lip=127.0.0.6, mpid=81301, TLS, session=<4PFBZI4a>
+
+        my @bits = split /:/, $line;
+        if  ( substr($bits[2], -7, 7) eq 'dovecot' ) {
+            if    ( $bits[4] eq ' Login'          ) { $count{success}++ }
+            elsif ( $bits[4] =~ /auth failed/     ) { $count{naughty}++ }
+            elsif ( $bits[4] =~ /no auth attempt/ ) { $count{probed}++  }
+            elsif ( $bits[4] =~ /Disconnected/    ) { $count{info}++    }
+            else  {
+                print "unknown mail: $line\n";
+                $count{unknown}++;
+            };
+        };
+    };
+    close FH;
+
+    foreach ( qw/ success naughty errors failed probed warning unknown info / ) {
+        $count{total} += $count{$_} || 0;
+    };
+    print Dumper(\%count) if $verbose;
+
+    return \%count;
+};
+
+sub _get_mail_log_location {
+
+    # check the most common places
+    my @log_files;
+    push @log_files, 'maillog';       # freebsd
+    push @log_files, 'mail.log';
+
+    foreach ( @log_files ) {
+        return "/var/log/$_" if -f "/var/log/$_";
+    };
+
+    warn "unable to find your mail logs.\n";
+    return;
 };
 
 
@@ -904,6 +955,7 @@ sub _get_db_lock_nfs {
     return $lock;
 };
 
+sub ignore_this {};
 
 __END__
 
