@@ -1,0 +1,53 @@
+#!/bin/sh
+
+# check_sentry - a nagios plugin for checking if sentry is active
+# by Matt Simerson
+# Dec 10, 2013 - initial writing
+
+# INSTRUCTIONS
+# install this script in your nagios libexec dir (check nrpe.cfg)
+#
+# add a line like this nrpe.cfg:
+#    command[check_sentry]=/usr/local/libexec/nagios/check_sentry
+#
+# and restart nrpe:
+#    service nrpe2 restart
+#
+# install this script in your nagios libexec dir (check nrpe.cfg)
+
+SENTRY_DIR=/var/db/sentry
+SENTRY_BIN="$SENTRY_DIR/sentry.pl"
+GREP=/usr/bin/grep
+
+if [ ! -x $GREP ]; then
+    echo "ERROR: edit check_sentry and set GREP"
+    GREP=grep
+fi
+
+echoerr() { echo "$@" >&2; }
+usage() {
+    echo "   usage: $0"
+    echo " "
+    exit 3
+}
+
+$GREP -v '^#' /etc/hosts.allow | $GREP -q sentry
+if [ $? -ne 0 ]; then
+    echo "sentry not active in hosts.allow!"
+    exit 2
+fi
+
+if [ ! -x $SENTRY_BIN ]; then
+    echoerr "sentry not executable by k$USER!"
+    if [ ! -d $SENTRY_DIR ]; then
+        echo "sentry dir ($SENTRY_DIR) doesn't exist!"
+        exit 2
+    fi
+
+    echo "OK - sentry appears installed and active"
+    exit 0
+fi
+
+
+echo "OK - sentry installed and active"
+exit 0
