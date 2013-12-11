@@ -2,7 +2,7 @@
 use strict;
 use warnings;
 
-our $VERSION = '0.27';
+our $VERSION = '0.28';
 
 # configuration. Adjust these to taste (boolean, unless noted)
 my $root_dir              = '/var/db/sentry';
@@ -704,12 +704,9 @@ sub _parse_mail_logs {
 sub _get_mail_logs {
 # if you want to blacklist spamming IPs, you must alter this to support your
 # MTA's log files.
-# Note the comments in the _get_ssh_logs sub. 
-# I recommend returning a hashref like the one used in the ssh function. 
 # If parsing SpamAssassin logs, I'd set success to be anything virus free
 #    and a spam score less than 5.
-# Naughty would be reserved for more than 3 message with a spam score
-# above 10. Or something like that.
+# Naughty might be more than 3 messages with spam scores above 10
 
     my $logfile = _get_mail_log_location();
     return if ! -f $logfile;
@@ -723,23 +720,29 @@ sub _get_mail_logs {
     my %count;
     while ( my $line = <FH> ) {
         chomp $line;
-        next if $line !~ /$ip/;  # ignore lines for other IPs
 
 # Dec  3 05:42:59 pe dovecot: pop3-login: Aborted login (auth failed, 1 attempts): user=<www>, method=PLAIN, rip=37.46.80.95, lip=18.28.0.30
 # Dec  3 05:43:06 pe dovecot: pop3-login: Disconnected (auth failed, 2 attempts): user=<info@***.edu>, method=PLAIN, rip=93.153.9.210, lip=18.28.0.30
 # Dec  3 00:04:45 pe dovecot: imap-login: Login: user=<john@a**g***ar.com>, method=PLAIN, rip=127.0.0.24, lip=127.0.0.6, mpid=81292, session=<AnAB/AAAY>
 # Dec  3 00:04:47 pe dovecot: imap-login: Login: user=<lyn@l*****er.com>, method=CRAM-MD5, rip=65.100.142.26, lip=127.0.0.6, mpid=81301, TLS, session=<4PFBZI4a>
 
-        my @bits = split /:/, $line;
-        if  ( substr($bits[2], -7, 7) eq 'dovecot' ) {
-            if    ( $bits[4] eq ' Login'          ) { $count{success}++ }
-            elsif ( $bits[4] =~ /auth failed/     ) { $count{naughty}++ }
-            elsif ( $bits[4] =~ /no auth attempt/ ) { $count{probed}++  }
-            elsif ( $bits[4] =~ /Disconnected/    ) { $count{info}++    }
+        my ($mon, $day, $time, $host, $app, $proc, $msg) = split /\s+/, $line, 6;
+        next if $msg !~ /$ip/;  # ignore lines for other IPs
+
+        if  ( $app eq 'dovecot:' ) {
+            if    ( $msg =~ '^Login:'         ) { $count{success}++ }
+            elsif ( $msg =~ /auth failed/     ) { $count{naughty}++ }
+            elsif ( $msg =~ /no auth attempt/ ) { $count{probed}++  }
+            elsif ( $msg =~ /Disconnected/    ) { $count{info}++    }
             else  {
                 print "unknown mail: $line\n";
                 $count{unknown}++;
             };
+        }
+        elsif ( $proc eq 'vchkpw-smtp:' ) {
+# Dec  5 07:56:27 pe vpopmail[1783]: vchkpw-smtp: null password given root:178.33.94.90
+            if    ( $msg =~ /vpopmail user not found/ ) { $count{naughty}++ }
+            elsif ( $msg =~ /null password/           ) { $count{naughty}++ };
         };
     };
     close FH;
@@ -785,7 +788,7 @@ sub _parse_ftp_logs {
     while ( my $line = <FH> ) {
         chomp $line;
 
-        my ($mon, $day, $time, $host, $proc, @mess) = split / /, $line;
+        my ($mon, $day, $time, $host, $proc, @mess) = split /\s+/, $line;
         my $mess = join(' ', @mess);
 
         next if ! $proc;

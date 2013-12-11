@@ -1,12 +1,17 @@
 
+0.28  2013-12-10
+  - added fix for FTP log parsing, m/ / -> m/\s+/ for WS split
+  - added vpopmail vchkpw-smtp parsing (limit SMTP brute-force)
+  - added check_sentry NRPE plugin, for Nagios monitoring
+
 0.27  2013-12-03
   - added fix for ssh log parsing, m/ / -> m/\s+/ for WS split
-  - added dovecot log parsing
+  - added dovecot log parsing (limit POP & IMAP brute-force)
 
-0.26 
+0.26
   - added the skeleton of a CPAN dist
   - fix for unblacklist not removing from tcpwrappers (sn3ak)
- 
+
 0.25  2013-04-02 -mps
   - Adds IPv6 support if Net::IP is installed
   - switched from file/dir to DB|GDBM|NDBM (whichever is installed)
@@ -47,7 +52,7 @@
   - reworked the --update feature, works better.
 
 0.16  2009-06-15 -mps
-  - ssh log entries that didn't meet the listed criteria were not being 
+  - ssh log entries that didn't meet the listed criteria were not being
     counted, preventing the 10 strikes and you're out rule from kicking in
 
 0.15  2009-06-09 -mps
@@ -77,7 +82,7 @@
 2009-02-28 -mps
   - CentOS 5.2 logs this IP to syslog: 24.19.45.95 but the 'address' it logs
     to hosts via %a is ::ffff:208.75.177.98. Sure would be nice if that change
-    was documented in hosts_access(5). 
+    was documented in hosts_access(5).
   - warn if unable to determine syslog location for sshd
 
 2009-02-27 -mps
