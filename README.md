@@ -18,8 +18,8 @@ sentry - safe and effective protection against bruteforce attacks
 
 # ADDITIONAL DOCUMENTATION
 
-    * [[ Sentry_Installation | Installation ]]
-    * [[ Sentry_FAQ | FAQ ]]
+    * [Install](Install.md)
+    * [FAQ](FAQ.md)
 
 
 
