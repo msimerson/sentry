@@ -1,4 +1,9 @@
 
+1.00  2015-05-30
+  - pass perl critic
+  - count root attempts as naughty (was failed)
+  - updated version check to GitHub URL
+
 0.28  2013-12-10
   - added fix for FTP log parsing, m/ / -> m/\s+/ for WS split
   - added vpopmail vchkpw-smtp parsing (limit SMTP brute-force)

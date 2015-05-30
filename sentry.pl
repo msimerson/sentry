@@ -2,7 +2,7 @@
 use strict;
 use warnings;
 
-our $VERSION = '0.28';
+our $VERSION = '1.00';
 
 # configuration. Adjust these to taste (boolean, unless noted)
 my $root_dir              = '/var/db/sentry';
@@ -15,6 +15,7 @@ my $expire_block_days     = 90;   # 0 to never expire
 my $protect_ftp           = 1;
 my $protect_smtp          = 0;
 my $protect_mua           = 1;    # dovecot POP3 & IMAP
+my $dl_url = 'https://raw.githubusercontent.com/msimerson/sentry/master/sentry.pl';
 
 # perl modules from CPAN
 #use Net::IP;  # eval'ed in _get_db_key
@@ -74,7 +75,7 @@ exit;
 
 sub is_valid_ip {
     return unless $ip;
-    eval "use Net::IP";
+    eval 'use Net::IP';  ## no critic
     if ( ! $@ ) {
         new Net::IP ( $ip ) or die Net::IP::Error();
         print "ip $ip is valid\n" if $verbose;
@@ -124,7 +125,7 @@ sub check_setup {
     # check $root_dir is present
     if ( ! -d $root_dir ) {
         print "creating ssh sentry root at $root_dir\n";
-        mkpath($root_dir, undef, 0750) 
+        mkpath($root_dir, undef, oct('0750'))
             or die "unable to create $root_dir: $!\n";
     };
 
@@ -146,9 +147,10 @@ sub configure_tcpwrappers {
         next if ! $_;
         next if ! -f $_ || ! -r $_;
 
-        open FH, $_;
-        my @matches = grep { $_ =~ /sentry/ } <FH>;
-        close FH;
+        open my $FH, '<', $_;
+        my @matches = grep { $_ =~ /sentry/ } <$FH>;
+        close $FH;
+
         if ( scalar @matches > 0 ) {
             $is_setup++;
             last;
@@ -158,7 +160,7 @@ sub configure_tcpwrappers {
     return 1 if $is_setup;
 
     my $script_loc = _get_script_location();
-    my $spawn = 'sshd : ALL : spawn ' . $script_loc . ' -c --ip=%a : allow';
+    my $spawn = 'sshd : ALL : spawn perl ' . $script_loc . ' -c --ip=%a : allow';
 
     if ( $OSNAME =~ /freebsd|linux/ ) {
 # FreeBSD & Linux have a modified tcpd, adding support for include files
@@ -169,10 +171,10 @@ $spawn\n\n";
         return;
     }
 
-    open FH, '>>', '/etc/hosts.deny' 
+    open my $FH, '>>', '/etc/hosts.deny'
         or warn "could not write to /etc/hosts.deny: $!" and return;
-    print FH "$spawn\n";
-    close FH;
+    print $FH "$spawn\n";
+    close $FH;
 };
 
 sub install_myself {
@@ -263,7 +265,7 @@ sub do_blacklist {
     _block_tcpwrappers() if $add_to_tcpwrappers;
     _block_pf()          if $add_to_pf;
     _block_ipfw()        if $add_to_ipfw;
-    
+
     return 1;
 };
 
@@ -326,9 +328,9 @@ sub _get_installed_version {
         warn "sentry not installed\n";
         return;
     };
-    my ($ver) = `grep VERSION $script_loc` =~ /VERSION\s*=\s*\'([0-9\.]+)\'/ or do { 
-            warn "unable to determine installed version"; 
-            return; 
+    my ($ver) = `grep VERSION $script_loc` =~ /VERSION\s*=\s*\'([0-9\.]+)\'/ or do {
+            warn "unable to determine installed version";
+            return;
         };
     print "installed version is $ver\n" if $verbose;
     return $ver;
@@ -336,14 +338,14 @@ sub _get_installed_version {
 
 sub _get_latest_release_version {
 
-    eval "require LWP::UserAgent";
+    eval 'require LWP::UserAgent'; ## no critic
     if ( $EVAL_ERROR ) {
-        warn "LWP::UserAgent not installed, cannot determine latest version\n"; 
+        warn "LWP::UserAgent not installed, cannot determine latest version\n";
         return 0;
     };
 
     my $ua = LWP::UserAgent->new( timeout => 4);
-    my $response = $ua->get('http://www.tnpi.net/internet/sentry.pl');
+    my $response = $ua->get($dl_url);
     $latest_script = $response->decoded_content;
     my ($latest_ver) = $latest_script =~ /VERSION\s*=\s*\'([0-9\.]+)\'/;
 
@@ -362,7 +364,7 @@ sub _get_script_location {
 sub _get_denylist_file {
 
 # Linux and FreeBSD systems have custom versions of libwrap that permit
-# storing IP lists in file referenced from hosts.allow or hosts.deny. 
+# storing IP lists in file referenced from hosts.allow or hosts.deny.
 # On those systems, dump the blacklisted IPs into a special file
 
     return "$root_dir/hosts.deny" if $OSNAME =~ /linux|freebsd/i;
@@ -392,15 +394,14 @@ sub _allow_tcpwrappers {
     };
 
     my $err = "failed to delist from tcpwrappers\n";
-    my $tmp = "$tcpd_denylist.tmp";
-    open TMP, '>', $tmp           or warn $err and return;
-    open CUR, '<', $tcpd_denylist or warn $err and return;
-    while ( <CUR> ) {
+    open my $TMP, '>', "$tcpd_denylist.tmp" or warn $err and return;
+    open my $CUR, '<', $tcpd_denylist       or warn $err and return;
+    while ( <$CUR> ) {
         next if $_ =~ / $ip /;  # discard the IP we want to whitelist
-        print TMP $_;
+        print $TMP $_;
     };
-    close TMP;
-    close CUR;
+    close $TMP;
+    close $CUR;
     move( "$tcpd_denylist.tmp", $tcpd_denylist) or $err;
 };
 
@@ -429,7 +430,7 @@ sub _allow_pf {
 
     # remove the IP from the PF table
     my $cmd = "-q -t $firewall_table -Tdelete $ip";
-    system "$pfctl $cmd" 
+    system "$pfctl $cmd"
         and warn "failed to remove $ip from PF table $firewall_table";
 };
 
@@ -444,12 +445,12 @@ sub _block_tcpwrappers {
     my $error = "could not add $ip to blocklist: $!\n";
 
     # prepend the naughty IP to the hosts.deny file
-    open (my $TMP, '>', "$tcpd_denylist.tmp") or warn $error and return;
+    open(my $TMP, '>', "$tcpd_denylist.tmp") or warn $error and return;
 ### WARY: THAR BE DRAGONS HERE!
     print $TMP "ALL: $ip : deny\n";
 # Linux and FreeBSD support an external filename referenced from
 # /etc/hosts.[allow|deny]. However, that filename parsing is not
-# identical to /etc/hosts.allow. Specifically, this works as 
+# identical to /etc/hosts.allow. Specifically, this works as
 # expected in /etc/hosts.allow:
 #    ALL : N.N.N.N : deny
 # but it does not work in an external file! Be sure to use this syntax:
@@ -525,7 +526,7 @@ sub _unblock_tcpwrappers {
     my $error = "could not remove $ip from blocklist: $!\n";
 
     # open a temp file
-    open (my $TMP, '>', $tmp) or warn $error and return;
+    open(my $TMP, '>', $tmp) or warn $error and return;
 
     # cat the current hosts.deny to the temp file, omitting $ip
     open my $BL, '<', $tcpd_denylist or warn $error and return;
@@ -581,7 +582,7 @@ sub _parse_ssh_logs {
     if ( $ssh_attempts->{success} ) { do_whitelist(); return; };
     if ( $ssh_attempts->{naughty} ) { do_blacklist(); return; };
 
-# do not use $seen_count here. If the ssh log parsing failed for any reason, 
+# do not use $seen_count here. If the ssh log parsing failed for any reason,
 # legit users would not get whitelisted, and then after 10 attempts they
 # would get backlisted.
 
@@ -596,8 +597,8 @@ sub _get_ssh_logs {
     print "checking for SSH logins in $logfile\n" if $verbose;
 
     my %count;
-    open FH, $logfile or warn "unable to read $logfile: $!\n" and return;
-    while ( my $line = <FH> ) {
+    open my $FH, '<', $logfile or warn "unable to read $logfile: $!\n" and return;
+    while ( my $line = <$FH> ) {
         chomp $line;
 
         next if $line !~ / sshd/;
@@ -606,17 +607,19 @@ sub _get_ssh_logs {
 # consider using Parse::Syslog if available
 #
 # WARNING: if you modify this, be mindful of log injection attacks.
-# Anchor any regexps or otherwise exclude the user modifiable portions of the 
-# log entries when parsing 
+# Anchor any regexps or otherwise exclude the user modifiable portions of the
+# log entries when parsing
 
 # Dec  3 12:14:16 pe sshd[4026]: Accepted publickey for tnpimatt from 67.171.0.90 port 45189 ssh2
 
         my @bits = split /\s+/, $line;  # split on WS is more efficient
-        if    ( $bits[5] eq 'Accepted' ) { $count{success}++  } 
-        elsif ( $bits[5] eq 'Invalid'  ) { $count{naughty}++  } 
+        if    ( $bits[5] eq 'Accepted' ) { $count{success}++  }
+        elsif ( $bits[5] eq 'Invalid'  ) { $count{naughty}++  }
         elsif ( $bits[5] eq 'Failed'   ) { $count{failed}++   }
         elsif ( $bits[5] eq 'Did'      ) { $count{probed}++   }
         elsif ( $bits[5] eq 'warning:' ) { $count{warnings}++ }
+        # 113.160.203.24
+        # PAM: authentication error for root from 113.160.203.24
         elsif ( $bits[5] eq '(pam_unix)' ) {
             $count{failed}++ and next if $line =~ /authentication failure; /;
             $count{naughty}++ and next if $line =~ /check pass; user unknown$/;
@@ -625,6 +628,7 @@ sub _get_ssh_logs {
         elsif ( $bits[5] eq 'error:' ) {
             if ( $bits[6] eq 'PAM:' ) {
 # FreeBSD PAM authentication
+                $count{naughty}++ and next if $line =~ /error for root/;
                 $count{failed}++ and next if $line =~ /authentication error/;
                 $count{naughty}++ and next if $line =~ /illegal user/;
             };
@@ -636,10 +640,10 @@ sub _get_ssh_logs {
 # good criteria for blacklisting
 #                $count{naughty}++;
 #            };
-# 
+#
 #            if ( $line =~ /Did not receive identification string from/ ) {
 # This entry means that something connected using the SSH protocol, but didn't
-# attempt to authenticate. This could a SSH version probe, or a 
+# attempt to authenticate. This could a SSH version probe, or a
 # monitoring tool like Nagios or Hobbit.
 #            };
 
@@ -647,7 +651,7 @@ sub _get_ssh_logs {
             print "unknown: $bits[5]: $line\n";
         }
     };
-    close FH;
+    close $FH;
 
     print Dumper(\%count) if $verbose;
     foreach ( qw/ success naughty errors failed probed warning unknown / ) {
@@ -704,6 +708,8 @@ sub _parse_mail_logs {
 sub _get_mail_logs {
 # if you want to blacklist spamming IPs, you must alter this to support your
 # MTA's log files.
+# Note the comments in the _get_ssh_logs sub.
+# I recommend returning a hashref like the one used in the ssh function.
 # If parsing SpamAssassin logs, I'd set success to be anything virus free
 #    and a spam score less than 5.
 # Naughty might be more than 3 messages with spam scores above 10
@@ -712,14 +718,15 @@ sub _get_mail_logs {
     return if ! -f $logfile;
     print "checking for email logins in $logfile\n" if $verbose;
 
-    open FH, $logfile or do {
+    open my $FH, '<', $logfile or do {
         warn "unable to read $logfile: $!\n";
         return;
     };
 
     my %count;
-    while ( my $line = <FH> ) {
+    while ( my $line = <$FH> ) {
         chomp $line;
+        next if $line !~ /$ip/;  # ignore lines for other IPs
 
 # Dec  3 05:42:59 pe dovecot: pop3-login: Aborted login (auth failed, 1 attempts): user=<www>, method=PLAIN, rip=37.46.80.95, lip=18.28.0.30
 # Dec  3 05:43:06 pe dovecot: pop3-login: Disconnected (auth failed, 2 attempts): user=<info@***.edu>, method=PLAIN, rip=93.153.9.210, lip=18.28.0.30
@@ -745,7 +752,7 @@ sub _get_mail_logs {
             elsif ( $msg =~ /null password/           ) { $count{naughty}++ };
         };
     };
-    close FH;
+    close $FH;
 
     foreach ( qw/ success naughty errors failed probed warning unknown info / ) {
         $count{total} += $count{$_} || 0;
@@ -783,9 +790,9 @@ sub _parse_ftp_logs {
 #Nov 21 21:33:57 vhost0 ftpd[5398]: connection from 87-194-156-116.bethere.co.uk (87.194.156.116)
 #Nov 21 21:33:57 vhost0 ftpd[5398]: FTP LOGIN FAILED FROM 87-194-156-116.bethere.co.uk
 
-    open FH, '<', $logfile or warn "unable to read $logfile: $!\n" and return;
+    open my $FH, '<', $logfile or warn "unable to read $logfile: $!\n" and return;
     my (%count, $rdns);
-    while ( my $line = <FH> ) {
+    while ( my $line = <$FH> ) {
         chomp $line;
 
         my ($mon, $day, $time, $host, $proc, @mess) = split /\s+/, $line;
@@ -805,7 +812,7 @@ sub _parse_ftp_logs {
 
         ( $rdns ) = $mess =~ /connection from (.*?) \($ip\)/
     };
-    close FH;
+    close $FH;
 
     foreach ( qw/ success failed / ) {
         $count{total} += $count{$_} || 0;
@@ -879,7 +886,7 @@ sub _parse_db_val {
 
 sub _get_db_key {
     my $lip = shift || $ip;
-    eval "use Net::IP";
+    eval 'use Net::IP';  ## no critic
     if ( $@ ) {
         warn "Net::IP not installed. Features degraded.\n";
         return unpack 'N', pack 'C4', split /\./, $lip;  # works for IPv4 only
@@ -890,7 +897,7 @@ sub _get_db_key {
 sub _get_db_tie {
     my ( $db, $lock ) = @_;
 
-    tie( my %db, 'AnyDBM_File', $db, O_CREAT|O_RDWR, 0600) or do {
+    tie( my %db, 'AnyDBM_File', $db, O_CREAT|O_RDWR, oct('0600')) or do {
         warn "error, tie to database $db failed: $!";
         close $lock;
         return;
@@ -912,15 +919,15 @@ sub _get_db_location {
     my $db = "$dbdir/sentry.dbm";
     print "using $db as database\n" if $verbose;
     return $db;
-};      
- 
+};
+
 sub _get_db_lock {
-    my $db = shift; 
-        
+    my $db = shift;
+
     return _get_db_lock_nfs($db) if $nfslock;
-    
+
     # Check denysoft db
-    open( my $lock, ">$db.lock" ) or do {
+    open(my $lock, '>', "$db.lock") or do {
         warn "error, opening lockfile failed: $!";
         return;
     };
@@ -930,7 +937,7 @@ sub _get_db_lock {
         close $lock;
         return;
     };
-    
+
     return $lock;
 }
 
@@ -950,7 +957,7 @@ sub _get_db_lock_nfs {
         return;
     };
 
-    open( my $lock, "+<$db.lock") or do {
+    open(my $lock, '+<', "$db.lock") or do {
         warn "error, opening nfs lockfile failed: $!";
         return;
     };
@@ -963,12 +970,12 @@ sub ignore_this {};
 __END__
 
 =head1 NAME
- 
+
 Sentry - safe and effective protection against bruteforce attacks
- 
+
 
 =head1 SYNOPSIS
- 
+
  sentry --ip=<ipv4 or ipv6 IP> [ --whitelist | --blacklist | --delist | --connect ]
  sentry --report [--verbose --ip=<ipv4 or ipv6 address> ]
  sentry --help
@@ -982,7 +989,7 @@ Sentry - safe and effective protection against bruteforce attacks
 
 
 =head1 DESCRIPTION
- 
+
 Sentry limits bruteforce attacks using minimal system resources.
 
 =head2 SAFE
@@ -1010,27 +1017,27 @@ The programming style of Sentry makes it easy to insert code for additional func
 A goal of Sentry is to minimize resource abuse. Many bruteforce blockers (denyhosts, fail2ban, sshdfilter) expect to run as a daemon, tailing a log file. That requires an interpreter to always be running, consuming CPU and RAM. A single hardware node with dozens of virtual servers loses hundreds of megs of RAM to daemon protection.
 
 Sentry uses resources only when connections are made, and then only a few times before an IP is white/blacklisted. Once an IP is blacklisted for abuse, the resources it can abuse are neglible.
- 
+
 =head1 REQUIRED ARGUMENTS
 
 =over 4
 
 =item ip
 
-An IPv4 or IPv6 address. The IP should come from a reliable source that is 
-difficult to spoof. Tcpwrappers is an excellent source. UDP connections 
+An IPv4 or IPv6 address. The IP should come from a reliable source that is
+difficult to spoof. Tcpwrappers is an excellent source. UDP connections
 are a poor source as they are easily spoofed. The log files of TCP daemons
 can be good source if they are parsed carefully to avoid log injection attacks.
 
 =back
- 
+
 All actions except B<report> and B<help> require an IP address. The IP can
-be manually specified by an administrator, or preferably passed in by a TCP 
-server such as tcpd (tcpwrappers), inetd, or tcpserver (daemontools). 
+be manually specified by an administrator, or preferably passed in by a TCP
+server such as tcpd (tcpwrappers), inetd, or tcpserver (daemontools).
 
 =head1 ACTIONS
 
-=over 
+=over
 
 =item blacklist
 
@@ -1038,7 +1045,7 @@ deny all future connections
 
 =item whitelist
 
-whitelist all future connections, remove the IP from the blacklists, 
+whitelist all future connections, remove the IP from the blacklists,
 and make it immune to future connection tests.
 
 =item delist
@@ -1055,7 +1062,7 @@ and the time. See CONNECT.
 
 Check the most recent version of Sentry against the installed version and update if a newer version is available.
 
-=back 
+=back
 
 =head1 EXAMPLES
 
@@ -1085,7 +1092,7 @@ Check the most recent version of Sentry against the installed version and update
 
 Sentry has flexible rules for what constitutes a naughty connection. For SSH,
 attempts to log in as an invalid user are considered naughty. For SMTP, the
-sending of a virus, or an email with a high spam score could be considered 
+sending of a virus, or an email with a high spam score could be considered
 naughty. See the configuration section in the script related settings.
 
 
@@ -1096,23 +1103,23 @@ If the IP is already white or blacklisted, it exits immediately.
 
 Next, Sentry checks to see if it has seen the IP more than 3 times. If so,
 check the logs for successful, failed, and naughty attempts from that IP.
-If there are any successful logins, whitelist the IP and exit. 
+If there are any successful logins, whitelist the IP and exit.
 
-If there are no successful logins and there are naughty ones, blacklist 
+If there are no successful logins and there are naughty ones, blacklist
 the IP. If there are no successful and no naughty attempts but more than 10
 connection attempts, blacklist the IP. See also NAUGHTY.
 
 
 =head1 CONFIGURATION AND ENVIRONMENT
- 
+
 There is a very brief configuration section at the top of the script. Once
-your IP is whitelisted, update the booleans for your firewall preference 
+your IP is whitelisted, update the booleans for your firewall preference
 and Sentry will update your firewall too.
 
 Sentry does NOT make changes to your firewall configuration. It merely adds
-IPs to a table/list/chain. It does this dynamically and it is up to the 
+IPs to a table/list/chain. It does this dynamically and it is up to the
 firewall administrator to add a rule that does whatever you'd like with the
-IPs in the sentry table. 
+IPs in the sentry table.
 
 I use the sentry IP table like so with PF:
 
@@ -1123,37 +1130,37 @@ That blocks all connections from anyone in the sentry table.
 
 
 =head1 DIAGNOSTICS
- 
+
 Sentry can be run with --verbose which will print informational messages
 as it runs.
 
 =head1 DEPENDENCIES
- 
+
   Net::IP, for IPv6 support.
 
 =head1 BUGS AND LIMITATIONS
- 
-The IPFW and ipchains code is barely tested. 
+
+The IPFW and ipchains code is barely tested.
 
 Report problems to author.
- 
+
 =head1 AUTHOR
- 
+
 Matt Simerson (msimerson@cpan.org)
- 
- 
+
+
 =head1 ACKNOWLEDGEMENTS
 
 Those who came before me: denyhosts, fail2ban, sshblacklist, et al
 
 
 =head1 LICENCE AND COPYRIGHT
- 
-Copyright (c) 2013 The Network People, Inc. http://www.tnpi.net/
+
+Copyright (c) 2015 The Network People, Inc. http://www.tnpi.net/
 
 This module is free software; you can redistribute it and/or
 modify it under the same terms as Perl itself. See L<perlartistic>.
- 
+
 This program is distributed in the hope that it will be useful,
 but WITHOUT ANY WARRANTY; without even the implied warranty of
 MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
