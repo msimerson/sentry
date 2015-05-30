@@ -7,7 +7,7 @@ our $VERSION = '1.00';
 # configuration. Adjust these to taste (boolean, unless noted)
 my $root_dir              = '/var/db/sentry';
 my $add_to_tcpwrappers    = 1;
-my $add_to_pf             = 0;
+my $add_to_pf             = 1;
 my $add_to_ipfw           = 0;    # untested
 my $add_to_iptables       = 0;    # untested
 my $firewall_table        = 'sentry_blacklist';
@@ -984,9 +984,7 @@ Sentry - safe and effective protection against bruteforce attacks
 
 =head1 ADDITIONAL DOCUMENTATION
 
- * [[ Sentry_Installation | Installation ]]
- * [[ Sentry_FAQ | FAQ ]]
-
+See https://github.com/msimerson/sentry
 
 =head1 DESCRIPTION
 
@@ -1066,27 +1064,8 @@ Check the most recent version of Sentry against the installed version and update
 
 =head1 EXAMPLES
 
-=head2 IP REPORT
+https://github.com/msimerson/sentry/wiki/Examples
 
- $ /var/db/sentry/sentry.pl -r --ip=24.19.45.95
-    9 connections from 24.19.45.95
-        and it is whitelisted
-
-=head2 WEB SERVER REPORT
-
- $ /var/db/sentry/sentry.pl -r
-  -------- summary ---------
-  1240 unique IPs have connected 285554 times
-    40 IPs are blacklisted
-     4 IPs are whitelisted
-
-=head2 EURO MIRROR
-
- $ /var/db/sentry/sentry.pl -r
- -------- summary ---------
- 3484 unique IPs have connected 15391 times
- 1127 IPs are blacklisted
-    6 IPs are whitelisted
 
 =head1 NAUGHTY
 
@@ -1121,12 +1100,7 @@ IPs to a table/list/chain. It does this dynamically and it is up to the
 firewall administrator to add a rule that does whatever you'd like with the
 IPs in the sentry table.
 
-I use the sentry IP table like so with PF:
-
-  table sentry_blacklist persist
-  block in quick from <sentry_blacklist>
-
-That blocks all connections from anyone in the sentry table.
+See PF: https://github.com/msimerson/sentry/wiki/PF
 
 
 =head1 DIAGNOSTICS
@@ -1151,7 +1125,7 @@ Matt Simerson (msimerson@cpan.org)
 
 =head1 ACKNOWLEDGEMENTS
 
-Those who came before me: denyhosts, fail2ban, sshblacklist, et al
+Those who came before: denyhosts, fail2ban, sshblacklist, et al
 
 
 =head1 LICENCE AND COPYRIGHT

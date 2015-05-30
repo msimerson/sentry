@@ -1,4 +1,8 @@
+.travis.yml
 Changes
+check_sentry
+FAQ.md
+INSTALL.md
 Makefile.PL
 MANIFEST			This list of files
 README.md
