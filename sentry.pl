@@ -2,7 +2,7 @@
 use strict;
 use warnings;
 
-our $VERSION = '1.00';
+our $VERSION = '1.01';
 
 # configuration. Adjust these to taste (boolean, unless noted)
 my $root_dir              = '/var/db/sentry';
@@ -18,7 +18,14 @@ my $protect_mua           = 1;    # dovecot POP3 & IMAP
 my $dl_url = 'https://raw.githubusercontent.com/msimerson/sentry/master/sentry.pl';
 
 # perl modules from CPAN
-#use Net::IP;  # eval'ed in _get_db_key
+my $has_netip = 0;
+eval 'use Net::IP';  ## no critic
+if ( !$@ ) {
+    $has_netip = 1;
+}
+else {
+    warn "Net::IP not installed. Features degraded.\n";
+};
 
 # perl built-in modules
 BEGIN { @AnyDBM_File::ISA = qw(DB_File GDBM_File NDBM_File) }
@@ -340,6 +347,11 @@ sub _get_latest_release_version {
 
     eval 'require LWP::UserAgent'; ## no critic
     if ( $EVAL_ERROR ) {
+        my $script = `curl -O $dl_url || wget $dl_url || fetch $dl_url`;
+        if ($script) {
+            my ($latest_ver) = $script =~ /VERSION\s*=\s*\'([0-9\.]+)\'/;
+            return $latest_ver;
+        }
         warn "LWP::UserAgent not installed, cannot determine latest version\n";
         return 0;
     };
@@ -572,7 +584,6 @@ sub _unblock_pf {
     return 1;
 };
 
-
 sub _parse_ssh_logs {
     my $ssh_attempts = _get_ssh_logs();
 
@@ -695,7 +706,6 @@ sub _get_sshd_log_location {
     return;
 };
 
-
 sub _parse_mail_logs {
     my $attempts = _get_mail_logs() or return;
 
@@ -793,15 +803,14 @@ sub _parse_ftp_logs {
     open my $FH, '<', $logfile or warn "unable to read $logfile: $!\n" and return;
     my (%count, $rdns);
     while ( my $line = <$FH> ) {
-        chomp $line;
 
-        my ($mon, $day, $time, $host, $proc, @mess) = split /\s+/, $line;
-        my $mess = join(' ', @mess);
+        my ($mon, $day, $time, $host, $proc, $mess) = split /\s+/, $line, 6;
 
         next if ! $proc;
         next if $proc !~ /^ftpd/;
 
         if ( $rdns ) {
+            # xferlog format has 'connection from' line followed by status
             if ( $mess =~ /FROM $rdns/i ) {
                 $count{failed}++ if $line =~ /LOGIN FAILED/;
                 $count{success}++ if $line =~ /LOGIN FROM/;
@@ -810,7 +819,7 @@ sub _parse_ftp_logs {
             };
         };
 
-        ( $rdns ) = $mess =~ /connection from (.*?) \($ip\)/
+        ( $rdns ) = $mess =~ /connection from (.*?) \($ip\)/;
     };
     close $FH;
 
@@ -848,7 +857,7 @@ sub upgrade_to_db {
 
     foreach my $f ( @files ) {
         my $a_ip = join('.', (split /\//, $f)[-4,-3,-2,-1]);
-        my $key = _get_db_key( $a_ip );
+        my $key = _get_db_key( $a_ip ) or die "unable to convert ip to an int";
         my $count = _count_lines( $f );
         my $white_path = $f; $white_path =~ s/seen/white/;
         my $black_path = $f; $black_path =~ s/seen/black/;
@@ -886,12 +895,10 @@ sub _parse_db_val {
 
 sub _get_db_key {
     my $lip = shift || $ip;
-    eval 'use Net::IP';  ## no critic
-    if ( $@ ) {
-        warn "Net::IP not installed. Features degraded.\n";
+    if ( $has_netip ) {
         return unpack 'N', pack 'C4', split /\./, $lip;  # works for IPv4 only
     };
-    return Net::IP->new( $lip )->intip or die "unable to convert $lip to an integer\n";
+    return Net::IP->new( $lip )->intip;
 };
 
 sub _get_db_tie {

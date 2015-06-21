@@ -1,4 +1,9 @@
 
+1.01  2015-06-20
+  - try loading Net::IP early, set $has_netip
+  - move "or die..." clause to prevent an innocuous perl 5.20 warning
+  - if LWP::UserAgent not installed, try using curl, wget, or fetch
+
 1.00  2015-05-30
   - pass perl critic
   - count root attempts as naughty (was failed)
