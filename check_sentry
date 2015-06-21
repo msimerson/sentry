@@ -6,6 +6,7 @@
 
 # INSTRUCTIONS
 # install this script in your nagios libexec dir (check nrpe.cfg)
+#  fetch -o /usr/local/libexec/nagios/check_sentry https://raw.githubusercontent.com/msimerson/sentry/master/check_sentry
 #
 # add a line like this nrpe.cfg:
 #    command[check_sentry]=/usr/local/libexec/nagios/check_sentry
