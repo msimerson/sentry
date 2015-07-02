@@ -1,4 +1,7 @@
 
+1.02  2015-07-02
+  - changed shebang: /usr/bin/perl -> /usr/bin/env perl
+
 1.01  2015-06-20
   - try loading Net::IP early, set $has_netip
   - move "or die..." clause to prevent an innocuous perl 5.20 warning

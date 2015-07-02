@@ -1,8 +1,8 @@
-#!/usr/bin/perl
+#!/usr/bin/env perl
 use strict;
 use warnings;
 
-our $VERSION = '1.01';
+our $VERSION = '1.02';
 
 # configuration. Adjust these to taste (boolean, unless noted)
 my $root_dir              = '/var/db/sentry';
