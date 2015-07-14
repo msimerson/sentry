@@ -5,7 +5,9 @@
 ```sh
 bash || sh
 export SENTRY_URL=https://raw.githubusercontent.com/msimerson/sentry/master/sentry.pl
-curl -O $SENTRY_URL || wget $SENTRY_URL || fetch $SENTRY_URL
+curl -O $SENTRY_URL || \
+  wget $SENTRY_URL || \
+  fetch --no-verify-peer $SENTRY_URL
 ```
 
 ### Run it:

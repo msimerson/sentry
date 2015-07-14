@@ -1,4 +1,7 @@
 
+1.03  2015-07-14
+  - change shebang: /usr/bin/env perl -> `which perl`
+
 1.02  2015-07-02
   - changed shebang: /usr/bin/perl -> /usr/bin/env perl
 
