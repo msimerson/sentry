@@ -187,12 +187,21 @@ $spawn\n\n";
 sub install_myself {
     my $script_loc = _get_script_location();
     print "installing $0 to $script_loc\n" if $verbose;
-    copy( $0, $script_loc ) or do {
-        warn "unable to copy $0 to $script_loc: $!\n";
+    open FHW, '>', $script_loc or do {    ## no critic
+        warn "unable to write to $script_loc: $!\n";
         return;
     };
+    open my $fhr, '<', $0 or do {
+        warn "unable to read $0: $!\n";
+        close FHW;
+        return;
+    };
+    print FHW '#!' . `which perl`;
+    while (<$fhr>) { next if /^#!/; print FHW $_; }
+    close $fhr;
+    close FHW;
     chmod 0755, $script_loc;
-    print "installed update to $script_loc\n";
+    print "installed to $script_loc\n";
     return 1;
 };
 
@@ -230,10 +239,10 @@ sub install_from_web {
     my $script_loc = _get_script_location();
 
     print "installing latest sentry.pl to $script_loc\n";
-    open my $FH, '>', $script_loc or die "error: $!\n";
-    print $FH '#!' . $^X . "\n";
-    print $FH $latest_script;
-    close $FH;
+    open FH, '>', $script_loc or die "error: $!\n"; ## no critic
+    print FH '#!' . `which perl`;
+    print FH $latest_script;
+    close FH;
     chmod 0755, $script_loc;
     my ($latest_ver) = $latest_script =~ /VERSION\s*=\s*\'([0-9\.]+)\'/;
     print "upgraded $script_loc to $latest_ver\n";
