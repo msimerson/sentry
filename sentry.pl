@@ -2,7 +2,7 @@
 use strict;
 use warnings;
 
-our $VERSION = '1.02';
+our $VERSION = '1.03';
 
 # configuration. Adjust these to taste (boolean, unless noted)
 my $root_dir              = '/var/db/sentry';
@@ -231,6 +231,7 @@ sub install_from_web {
 
     print "installing latest sentry.pl to $script_loc\n";
     open my $FH, '>', $script_loc or die "error: $!\n";
+    print $FH '#!' . $^X . "\n";
     print $FH $latest_script;
     close $FH;
     chmod 0755, $script_loc;
