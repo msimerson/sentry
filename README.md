@@ -22,17 +22,13 @@ Sentry detects and prevents bruteforce attacks against sshd using minimal system
 
 ## SAFE
 
-To prevent inadvertant lockouts, Sentry manages a whitelist of IPs that have connected more than 3 times and succeeded at least once. Never again will that forgetful colleague behind the office NAT router get us locked out of our system. Nor the admin whose script just failed to login 12 times in 2 seconds.
+To prevent inadvertant lockouts, Sentry auto-whitelists IPs that have connected more than 3 times and succeeded at least once. Now that forgetful colleague behind the office NAT router won't get us locked out of our system. Again. Nor the admin whose script just failed to login 12 times in 2 seconds.
 
-Sentry includes support for adding IPs to a firewall. Support for IPFW, PF, ipchains is included. Firewall support is disabled by default. This is because firewall rules may terminate existing session(s) to the host (attn IPFW users). Get your IPs whitelisted (connect 3x or use --whitelist) before enabling the firewall option.
+Sentry includes support for adding IPs to a firewall. Support for IPFW, PF, ipchains is included. Firewall support is disabled by default. Firewall rules may terminate existing session(s) to the host (attn. IPFW users). Get your IPs whitelisted (connect 3x or use --whitelist) before enabling the firewall option.
 
 ## SIMPLE
 
-Sentry has an extremely simple database for tracking IPs. This makes it very
-easy for administrators to view and manipulate the database using shell commands
-and scripts. See the EXAMPLES section.
-
-Sentry is written in perl, which is installed everywhere you find sshd. It has no
+Sentry is written in perl, which is installed nearly everywhere you find sshd. It has no
 dependencies. Installation and deployment is extremely simple.
 
 ## FLEXIBLE
@@ -41,26 +37,21 @@ Sentry supports blocking connection attempts using tcpwrappers and several
 popular firewalls. It is easy to extend sentry to support additional
 blocking lists.
 
-Sentry was written to protect the SSH daemon but anticipates use with other daemons. SMTP support is planned. As this was written, the primary attack platform in use is bot nets comprised of exploited PCs on high-speed internet connections. These bots are used for carrying out SSH attacks as well as spam delivery. Blocking bots prevents multiple attack vectors.
+Sentry was written to protect the SSH daemon but also blocks on FTP and MUA logs. As this was written, the primary attack platform in use is bot nets comprised of exploited PCs on high-speed internet connections. These bots are used for carrying out SSH attacks as well as spam delivery. Blocking bots prevents multiple attack vectors.
 
 The programming style of sentry makes it easy to insert code for additonal functionality.
 
 ## EFFICIENT
 
-The primary goal of Sentry is to minimize the resources an attacker can steal, while consuming minimal resources itself. Most bruteforce blocking apps (denyhosts, fail2ban, sshdfilter) expect to run as a daemon, tailing a log file. That requires a language interpreter to always be running, consuming at least 10MB of RAM. A single hardware node with dozens of virtual servers will lose hundreds of megs to daemon protection.
-
-Sentry uses resources only when connections are made. The worse case scenario is the first connection made by an IP, since it will invoke a perl interpreter. For most connections, Sentry will append a timestamp to a file, stat for the presense of another file and exit.
+The primary goal of Sentry is to minimize the resources an attacker can steal, while consuming minimal resources itself. Most bruteforce blocking apps (denyhosts, fail2ban, sshdfilter) expect to run as a daemon, tailing a log file. That requires a language interpreter to always be running, consuming at least 10MB of RAM. A single hardware node with dozens of virtual servers will lose hundreds of megs to daemon protection. Sentry uses resources only when connections are made.
 
 Once an IP is blacklisted for abuse, whether by tcpd or a firewall, the resources it can consume are practically zero.
-
-Sentry is not particularly efficient for reporting. The "one file per IP" is superbly minimal for logging and blacklisting, but nearly any database would perform better for reporting. Expect to wait a few seconds for sentry --report.
-
 
 # REQUIRED ARGUMENTS
 
 - ip
 
-    An IPv4 address. The IP should come from a reliable source that is
+    An IP address. The IP should come from a reliable source that is
     difficult to spoof. Tcpwrappers is an excellent source. UDP connections
     are a poor source as they are easily spoofed. The log files of TCP daemons
     can be good source if they are parsed carefully to avoid log injection attacks.
@@ -92,7 +83,7 @@ server such as tcpd (tcpwrappers), inetd, or tcpserver (daemontools).
 
 - update
 
-    Check the most recent version of sentry against the installed version and update if a newer version is available.
+    Check the most recent version of sentry against the installed version and update if a newer version is available. This is most reliable when LWP::UserAgent is installed.
 
 # EXAMPLES
 
@@ -103,17 +94,16 @@ See
 # NAUGHTY
 
 Sentry has flexible rules for what constitutes a naughty connection. For SSH,
-attempts to log in as an invalid user are considered naughty. For SMTP, the
-sending of a virus, or an email with a high spam score could be considered
-naughty. See the configuration section in the script related settings.
+attempts to log in as an invalid user are considered naughty.
+See the configuration section in the script related settings.
 
 
 # CONNECT
 
 When new connections arrive, the connect method will log the attempt
-and the time. If the IP is white or blacklisted, it will exit immediately.
+and the time. If the IP is white or blacklisted, sentry exits immediately.
 
-Next, sentry checks to see if it has seen the IP more than 3 times. If so,
+Next, sentry checks to see if the IP has been seen more than 3 times. If so,
 check the logs for successful, failed, and naughty attempts from that IP.
 If there are any successful logins, whitelist the IP and exit.
 
@@ -157,7 +147,7 @@ Report problems to author.
 
 # AUTHOR
 
-Matt Simerson (msimerson@cpan.org)
+Matt Simerson (@msimerson)
 
 
 # ACKNOWLEDGEMENTS
