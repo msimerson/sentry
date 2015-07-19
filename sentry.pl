@@ -2,7 +2,7 @@
 use strict;
 use warnings;
 
-our $VERSION = '1.03';
+our $VERSION = '1.04';
 
 # configuration. Adjust these to taste (boolean, unless noted)
 my $root_dir              = '/var/db/sentry';
@@ -24,7 +24,7 @@ if ( !$@ ) {
     $has_netip = 1;
 }
 else {
-    warn "Net::IP not installed. Features degraded.\n";
+    warn "Net::IP not installed. No IPv6 support.\n";
 };
 
 # perl built-in modules
@@ -633,7 +633,7 @@ sub _get_ssh_logs {
 
 # Dec  3 12:14:16 pe sshd[4026]: Accepted publickey for tnpimatt from 67.171.0.90 port 45189 ssh2
 
-        my @bits = split /\s+/, $line;  # split on WS is more efficient
+        my @bits = split /\s+/, $line;  # split on WS
         if    ( $bits[5] eq 'Accepted' ) { $count{success}++  }
         elsif ( $bits[5] eq 'Invalid'  ) { $count{naughty}++  }
         elsif ( $bits[5] eq 'Failed'   ) { $count{failed}++   }
@@ -804,7 +804,7 @@ sub _parse_ftp_logs {
 
 # sample success
 #Nov  8 11:27:51 vhost0 ftpd[29864]: connection from adsl-69-209-115-194.dsl.klmzmi.ameritech.net (69.209.115.194)
-#Nov  8 11:27:51 vhost0 ftpd[29864]: FTP LOGIN FROM adsl-69-209-115-194.dsl.klmzmi.ameritech.net as rollings
+#Nov  8 11:27:51 vhost0 ftpd[29864]: FTP LOGIN FROM adsl-69-209-115-194.dsl.klmzmi.ameritech.net as rollins
 
 # sample failed
 #Nov 21 21:33:57 vhost0 ftpd[5398]: connection from 87-194-156-116.bethere.co.uk (87.194.156.116)
@@ -814,22 +814,22 @@ sub _parse_ftp_logs {
     my (%count, $rdns);
     while ( my $line = <$FH> ) {
 
-        my ($mon, $day, $time, $host, $proc, $mess) = split /\s+/, $line, 6;
+        my ($mon, $day, $time, $host, $proc, $msg) = split /\s+/, $line, 6;
 
         next if ! $proc;
         next if $proc !~ /^ftpd/;
 
         if ( $rdns ) {
             # xferlog format has 'connection from' line followed by status
-            if ( $mess =~ /FROM $rdns/i ) {
-                $count{failed}++ if $line =~ /LOGIN FAILED/;
-                $count{success}++ if $line =~ /LOGIN FROM/;
+            if ( $msg =~ /FROM $rdns/i ) {
+                $count{failed}++ if $line =~ /^FTP LOGIN FAILED/;
+                $count{success}++ if $line =~ /^FTP LOGIN FROM/;
                 $rdns = undef;
                 next;
             };
         };
 
-        ( $rdns ) = $mess =~ /connection from (.*?) \($ip\)/;
+        ( $rdns ) = $msg =~ /connection from (.*?) \($ip\)/;
     };
     close $FH;
 
