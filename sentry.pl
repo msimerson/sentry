@@ -136,7 +136,6 @@ sub check_setup {
             or die "unable to create $root_dir: $!\n";
     };
 
-    do_version_check() if ( -r $root_dir && -w $root_dir );
     configure_tcpwrappers();
 
     return 1 if ( $report || $self_update );
