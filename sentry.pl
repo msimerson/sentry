@@ -630,7 +630,8 @@ sub _get_ssh_logs {
 # Anchor any regexps or otherwise exclude the user modifiable portions of the
 # log entries when parsing
 
-# Dec  3 12:14:16 pe sshd[4026]: Accepted publickey for tnpimatt from 67.171.0.90 port 45189 ssh2
+# Dec  3 12:14:16 pe   sshd[4026]: Accepted publickey for tnpimatt from 67.171.0.90 port 45189 ssh2
+# Feb  8 20:49:21 spry sshd[1550]: Failed password for invalid user pentakill from 93.62.1.201 port 33210 ssh2
 
         my @bits = split /\s+/, $line;  # split on WS
         if    ( $bits[5] eq 'Accepted' ) { $count{success}++  }
@@ -650,7 +651,7 @@ sub _get_ssh_logs {
 # FreeBSD PAM authentication
                 $count{naughty}++ and next if $line =~ /error for root/;
                 $count{failed}++ and next if $line =~ /authentication error/;
-                $count{naughty}++ and next if $line =~ /illegal user/;
+                $count{naughty}++ and next if $line =~ /(invalid|illegal) user/;
             };
             $count{errors}++;
         }
