@@ -166,7 +166,7 @@ sub configure_tcpwrappers {
     return 1 if $is_setup;
 
     my $script_loc = _get_script_location();
-    my $spawn = 'sshd : ALL : spawn perl ' . $script_loc . ' -c --ip=%a : allow';
+    my $spawn = 'sshd : ALL : spawn ' . $script_loc . ' -c --ip=%a : allow';
 
     if ( $OSNAME =~ /freebsd|linux/ ) {
 # FreeBSD & Linux have a modified tcpd, adding support for include files
