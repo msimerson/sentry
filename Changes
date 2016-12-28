@@ -1,4 +1,11 @@
 
+1.05  2016-12-28
+  - make new sshd error 'maximum authentication attempts exceeded for root' a
+    naughy condition.
+
+1.04  2016-06-11
+  - invalid users are naughty
+
 1.03  2015-07-14
   - change shebang: /usr/bin/env perl -> `which perl`
 

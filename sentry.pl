@@ -2,7 +2,7 @@
 use strict;
 use warnings;
 
-our $VERSION = '1.04';
+our $VERSION = '1.05';
 
 # configuration. Adjust these to taste (boolean, unless noted)
 my $root_dir              = '/var/db/sentry';
@@ -647,6 +647,7 @@ sub _get_ssh_logs {
             print "pam_unix unknown: $line\n";
         }
         elsif ( $bits[5] eq 'error:' ) {
+            $count{naughty}++ and next if $line =~ /exceeded for root/;
             if ( $bits[6] eq 'PAM:' ) {
 # FreeBSD PAM authentication
                 $count{naughty}++ and next if $line =~ /error for root/;
