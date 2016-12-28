@@ -352,26 +352,45 @@ sub _get_installed_version {
     return $ver;
 };
 
-sub _get_latest_release_version {
-
+sub _get_url_lwp {
     eval 'require LWP::UserAgent'; ## no critic
     if ( $EVAL_ERROR ) {
-        my $script = `curl -O $dl_url || wget $dl_url || fetch $dl_url`;
-        if ($script) {
-            my ($latest_ver) = $script =~ /VERSION\s*=\s*\'([0-9\.]+)\'/;
-            return $latest_ver;
-        }
-        warn "LWP::UserAgent not installed, cannot determine latest version\n";
-        return 0;
-    };
+        warn "LWP::UserAgent not installed\n";
+        return;
+    }
 
     my $ua = LWP::UserAgent->new( timeout => 4);
     my $response = $ua->get($dl_url);
-    $latest_script = $response->decoded_content;
-    my ($latest_ver) = $latest_script =~ /VERSION\s*=\s*\'([0-9\.]+)\'/;
+    if (!$response->is_success) {
+        warn $response->status_line;
+        return;
+    }
 
+    return $response->decoded_content;
+}
+
+sub _get_url_cli {
+    return `curl $dl_url || wget $dl_url || fetch -o - $dl_url`;
+}
+
+sub _get_latest_release_version {
+
+    my $manual_msg = "try upgrading manually with:\n
+curl -O /var/db/sentry/sentry.pl $dl_url
+  or
+fetch -o /var/db/sentry/sentry.pl $dl_url
+
+chmod 755 /var/db/sentry/sentry.pl\n";
+
+    my $doc = _get_url_lwp() || _get_url_cli();
+    if (!$doc) {
+        warn "unable to download latest script, $manual_msg";
+        return 0;
+    }
+
+    my ($latest_ver) = $doc =~ /VERSION\s*=\s*\'([0-9\.]+)\'/;
     if ( ! $latest_ver ) {
-        warn "could not determine latest version\n";
+        warn "could not determine latest version, $manual_msg\n";
         return 0;
     };
     print "most recent version: $latest_ver\n" if $verbose;

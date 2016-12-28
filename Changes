@@ -2,6 +2,7 @@
 1.05  2016-12-28
   - make new sshd error 'maximum authentication attempts exceeded for root' a
     naughy condition.
+  - improve the --update function
 
 1.04  2016-06-11
   - invalid users are naughty
