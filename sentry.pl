@@ -82,8 +82,7 @@ exit;
 
 sub is_valid_ip {
     return unless $ip;
-    eval 'use Net::IP';  ## no critic
-    if ( ! $@ ) {
+    if ( $has_netip ) {
         new Net::IP ( $ip ) or die Net::IP::Error();
         print "ip $ip is valid\n" if $verbose;
         return $ip
@@ -925,7 +924,7 @@ sub _parse_db_val {
 
 sub _get_db_key {
     my $lip = shift || $ip;
-    if ( $has_netip ) {
+    if ( ! $has_netip ) {
         return unpack 'N', pack 'C4', split /\./, $lip;  # works for IPv4 only
     };
     return Net::IP->new( $lip )->intip;
