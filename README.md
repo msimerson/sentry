@@ -22,7 +22,7 @@ Sentry detects and prevents bruteforce attacks against sshd using minimal system
 
 ## SAFE
 
-To prevent inadvertant lockouts, Sentry auto-allows IPs that have connected more than 3 times and succeeded at least once. Now that forgetful colleague behind the office NAT router won't get us locked out of our system. Again. Nor the admin whose script just failed to login 12 times in 2 seconds.
+To prevent inadvertent lockouts, Sentry auto-allows IPs that have connected more than 3 times and succeeded at least once. Now that forgetful colleague behind the office NAT router won't get us locked out of our system. Again. Nor the admin whose script just failed to login 12 times in 2 seconds.
 
 Sentry includes support for adding IPs to a firewall. Support for IPFW, PF, ipchains is included. Firewall support is disabled by default. Firewall rules may terminate existing session(s) to the host (attn. IPFW users). Get your IPs allowed (connect 3x or use --allow) before enabling the firewall option.
 
