@@ -5,8 +5,8 @@ sentry - safe and effective protection against bruteforce attacks
 # SYNOPSIS
 
 ```sh
-sentry --ip=N.N.N.N [ --connect | --blacklist | --whitelist | --delist ]
-sentry --report [--verbose --ip=N.N.N.N ]
+sentry --ip=N.N.N.N|X:X:X:X::X [ --connect | --block | --allow | --delist ]
+sentry --report [--verbose --ip=N.N.N.N|X:X:X:X::X ]
 sentry --help
 sentry --update
 ```
@@ -22,9 +22,9 @@ Sentry detects and prevents bruteforce attacks against sshd using minimal system
 
 ## SAFE
 
-To prevent inadvertant lockouts, Sentry auto-whitelists IPs that have connected more than 3 times and succeeded at least once. Now that forgetful colleague behind the office NAT router won't get us locked out of our system. Again. Nor the admin whose script just failed to login 12 times in 2 seconds.
+To prevent inadvertant lockouts, Sentry auto-allows IPs that have connected more than 3 times and succeeded at least once. Now that forgetful colleague behind the office NAT router won't get us locked out of our system. Again. Nor the admin whose script just failed to login 12 times in 2 seconds.
 
-Sentry includes support for adding IPs to a firewall. Support for IPFW, PF, ipchains is included. Firewall support is disabled by default. Firewall rules may terminate existing session(s) to the host (attn. IPFW users). Get your IPs whitelisted (connect 3x or use --whitelist) before enabling the firewall option.
+Sentry includes support for adding IPs to a firewall. Support for IPFW, PF, ipchains is included. Firewall support is disabled by default. Firewall rules may terminate existing session(s) to the host (attn. IPFW users). Get your IPs allowed (connect 3x or use --allow) before enabling the firewall option.
 
 ## SIMPLE
 
@@ -45,13 +45,13 @@ The programming style of sentry makes it easy to insert code for additonal funct
 
 The primary goal of Sentry is to minimize the resources an attacker can steal, while consuming minimal resources itself. Most bruteforce blocking apps (denyhosts, fail2ban, sshdfilter) expect to run as a daemon, tailing a log file. That requires a language interpreter to always be running, consuming at least 10MB of RAM. A single hardware node with dozens of virtual servers will lose hundreds of megs to daemon protection. Sentry uses resources only when connections are made.
 
-Once an IP is blacklisted for abuse, whether by tcpd or a firewall, the resources it can consume are practically zero.
+Once an IP is blocked for abuse, whether by tcpd or a firewall, the resources it can consume are practically zero.
 
 # REQUIRED ARGUMENTS
 
 - ip
 
-    An IP address. The IP should come from a reliable source that is
+    An IPv4 or IPv6 address. The IP should come from a reliable source that is
     difficult to spoof. Tcpwrappers is an excellent source. UDP connections
     are a poor source as they are easily spoofed. The log files of TCP daemons
     can be good source if they are parsed carefully to avoid log injection attacks.
@@ -62,18 +62,18 @@ server such as tcpd (tcpwrappers), inetd, or tcpserver (daemontools).
 
 # ACTIONS
 
-- blacklist
+- block
 
     deny all future connections
 
-- whitelist
+- allow
 
-    whitelist all future connections, remove the IP from the blacklists,
+    allow all future connections, remove the IP from the blocklists,
     and make it immune to future connection tests.
 
 - delist
 
-    remove an IP from the white and blacklists. This is useful for testing
+    remove an IP from the allow and block lists. This is useful for testing
     that sentry is working as expected.
 
 - connect
@@ -101,21 +101,21 @@ See the configuration section in the script related settings.
 # CONNECT
 
 When new connections arrive, the connect method will log the attempt
-and the time. If the IP is white or blacklisted, sentry exits immediately.
+and the time. If the IP is allowed or blocked, sentry exits immediately.
 
 Next, sentry checks to see if the IP has been seen more than 3 times. If so,
 check the logs for successful, failed, and naughty attempts from that IP.
-If there are any successful logins, whitelist the IP and exit.
+If there are any successful logins, allow the IP and exit.
 
-If there are no successful logins and there are naughty ones, blacklist
+If there are no successful logins and there are naughty ones, block
 the IP. If there are no successful and no naughty attempts but more than 10
-connection attempts, blacklist the IP. See also NAUGHTY.
+connection attempts, block the IP. See also NAUGHTY.
 
 
 # CONFIGURATION AND ENVIRONMENT
 
 There is a very brief configuration section at the top of the script. Once
-your IP is whitelisted, update the booleans for your firewall preference
+your IP is allowed, update the booleans for your firewall preference
 and Sentry will update your firewall too.
 
 Sentry does NOT make changes to your firewall configuration. It merely adds
@@ -152,7 +152,7 @@ Matt Simerson (@msimerson)
 
 # ACKNOWLEDGEMENTS
 
-Those who came before me: denyhosts, fail2ban, sshblacklist, et al
+Those who came before me: denyhosts, fail2ban, sshblocklist, et al
 
 
 # LICENCE AND COPYRIGHT

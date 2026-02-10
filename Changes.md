@@ -47,7 +47,7 @@
 ### 0.26
 
 - added the skeleton of a CPAN dist
-- fix for unblacklist not removing from tcpwrappers (sn3ak)
+- fix for unblock not removing from tcpwrappers (sn3ak)
 
 ### 0.25  2013-04-02 -mps
 
@@ -78,8 +78,8 @@
 
 - added FTP log parsing
 - properly account for FreeBSD + sshd + PAM logins
-- if an IP is whitelisted and blacklisted, remove from blacklist
-- IPs were getting whitelisted and blacklisted, because the do_???list subs were not returning a success code "do_ and exit;". Added missing result code and altered methods to not depend on them "do_; exit;".
+- if an IP is allowed and blocked, remove from blocklist
+- IPs were getting allowed and blocked, because the do_???list subs were not returning a success code "do_ and exit;". Added missing result code and altered methods to not depend on them "do_; exit;".
 - sentry.pl wasn't being installed unless --update was selected. If no version is installed, install anyway.
 - when doing an IP report, show the log file entries if --verbose
 - if FTP logs are enabled but not found, report error.
@@ -106,7 +106,7 @@
 
 ### 0.12  2009-04-14 -mps
 
-- pf table in docs was sentry, updated to sentry_blacklist (make docs match the code (thanks Kevin Golding).
+- pf table in docs was sentry, updated to sentry_blocklist (make docs match the code (thanks Kevin Golding).
 - pfctl add/remove was not working properly. Fixed and tested.
 
 ### 0.11  2009-03-01 -mps
@@ -130,7 +130,7 @@
 ### 2009-02-27 -mps
 
 - discovered and worked around an 'interesting' problem in external files referenced by some implementations of tcpwrappers
-- fixed a copy/paste induced bug preventing delist from working on whitelist
+- fixed a copy/paste induced bug preventing delist from working on allowlist
 - updated syslog finding script to be more robust on various platforms
 - added checks for read permission to $root_dir before attempting to report or setup
 
@@ -146,6 +146,6 @@
 
 ### 2009-02-25 -mps
 
-- reworked the tcpwrappers black/whitelisting after discovery that libwrap doesn't include the very handy file include feature that tcpwrappers has on FreeBSD and Linux
+- reworked the tcpwrappers allow/blocklisting after discovery that libwrap doesn't include the very handy file include feature that tcpwrappers has on FreeBSD and Linux
 - if hosts.allow and deny are missing, auto-configure them
 - added default log locations for numerous platforms
