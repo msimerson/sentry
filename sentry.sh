@@ -3,8 +3,6 @@
 # Ported to bash from Perl, using SQLite instead of DBM
 # Original author: Matt Simerson (@msimerson)
 
-set -e
-
 VERSION='2.00'
 
 # Configuration - adjust these to taste
@@ -83,7 +81,7 @@ is_valid_ipv4() {
     
     # Validate each octet
     for octet in "${octets[@]}"; do
-        if ! [[ "$octet" =~ ^[0-9]+$ ]] || [ "$octet" -lt 0 ] || [ "$octet" -gt 255 ]; then
+        if ! [[ "$octet" =~ ^[0-9]+$ ]] || [ "$octet" -gt 255 ]; then
             return 1
         fi
     done
@@ -165,10 +163,10 @@ load_ip_record() {
     
     printf "%4d connections from %s (key: %s)\n" "$SEEN" "$IP" "$key"
     if [ "$WHITE" -ne 0 ]; then
-        echo -e "\tand it is whitelisted"
+        printf "\tand it is whitelisted\n"
     fi
     if [ "$BLACK" -ne 0 ]; then
-        echo -e "\tand it is blacklisted"
+        printf "\tand it is blacklisted\n"
     fi
 }
 
