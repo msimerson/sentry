@@ -2,19 +2,28 @@
 
 sentry - safe and effective protection against bruteforce attacks
 
+# VERSIONS
+
+Sentry is available in two implementations:
+- **Bash version** (`sentry.sh`): Uses SQLite database, minimal dependencies
+- **Perl version** (`sentry.pl`): Original implementation using DBM
+
+See [MIGRATION.md](MIGRATION.md) for details on the differences and how to migrate.
+
 # SYNOPSIS
 
 ```sh
 sentry --ip=N.N.N.N [ --connect | --blacklist | --whitelist | --delist ]
 sentry --report [--verbose --ip=N.N.N.N ]
 sentry --help
-sentry --update
+sentry --update  # Perl version only
 ```
 
 # ADDITIONAL DOCUMENTATION
 
 * [Install](INSTALL.md)
 * [FAQ](FAQ.md)
+* [Migration Guide](MIGRATION.md) - For migrating from Perl to Bash version
 
 # DESCRIPTION
 
@@ -28,8 +37,12 @@ Sentry includes support for adding IPs to a firewall. Support for IPFW, PF, ipch
 
 ## SIMPLE
 
-Sentry is written in perl, which is installed nearly everywhere you find sshd. It has no
-dependencies. Installation and deployment is extremely simple.
+Sentry is available in both Perl and Bash implementations:
+
+- **Perl version**: No dependencies beyond core Perl modules
+- **Bash version**: Requires only bash and sqlite3 (commonly available)
+
+Installation and deployment is extremely simple for both versions.
 
 ## FLEXIBLE
 
