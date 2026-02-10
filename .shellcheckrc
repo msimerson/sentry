@@ -1,0 +1,12 @@
+# ShellCheck configuration for sentry
+# Disable specific checks that are low priority or intentional
+
+# SC2034: Variable appears unused - VERSION and DL_URL are for reference
+disable=SC2034
+
+# SC2155: Declare and assign separately - this is a style preference
+# and the current code is more readable
+disable=SC2155
+
+# SC2206: Quote to prevent word splitting - intentional for IFS-based splitting
+disable=SC2206

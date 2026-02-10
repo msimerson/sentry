@@ -1,3 +1,4 @@
+.shellcheckrc
 .travis.yml
 Changes.md
 check_sentry
@@ -8,3 +9,4 @@ MANIFEST			This list of files
 README.md
 sentry.pl
 t/01-syntax.t
+t/02-shellcheck.t

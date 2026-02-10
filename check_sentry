@@ -23,7 +23,7 @@ GREP=/usr/bin/grep
 
 if [ ! -x $GREP ]; then
     echo "ERROR: edit check_sentry and set GREP"
-    GREP=grep
+    GREP="grep"
 fi
 
 echoerr() { echo "$@" >&2; }
