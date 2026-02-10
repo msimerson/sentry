@@ -4,9 +4,11 @@ Changes.md
 check_sentry
 FAQ.md
 INSTALL.md
-Makefile.PL
+Makefile
 MANIFEST			This list of files
+MIGRATION.md
 README.md
-sentry.pl
-t/01-syntax.t
-t/02-shellcheck.t
+sentry.sh
+t/01-syntax.sh
+t/02-shellcheck.sh
+t/run-tests.sh

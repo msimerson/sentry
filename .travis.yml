@@ -1,5 +1,7 @@
-language: perl
-perl:
-  - "5.22"
-  - "5.12"
-  - "5.10"
+language: bash
+script:
+  - ./t/run-tests.sh
+addons:
+  apt:
+    packages:
+      - shellcheck
