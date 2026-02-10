@@ -22,13 +22,18 @@ The old Perl version used DBM files (`sentry.dbm`). The new Bash version uses SQ
 **New format (SQLite):**
 ```sql
 CREATE TABLE ip_records (
-    key INTEGER PRIMARY KEY,    -- IP as integer (or hash for IPv6)
-    ip TEXT NOT NULL,           -- IP as dotted notation or IPv6
+    ip TEXT PRIMARY KEY,        -- IP address (IPv4 or IPv6) as text
     seen INTEGER DEFAULT 0,     -- Connection count
     allow INTEGER DEFAULT 0,    -- Allow timestamp (0 = not allowed)
     block INTEGER DEFAULT 0     -- Block timestamp (0 = not blocked)
 );
 ```
+
+**Benefits of text-based storage:**
+- Human-readable: Easy to query with `SELECT * FROM ip_records WHERE ip = '192.168.1.1'`
+- Works identically for IPv4 and IPv6
+- Supports LIKE queries for subnet searches: `WHERE ip LIKE '192.168.1.%'`
+- No hash collisions or integer conversions needed
 
 **Note**: Column names changed from `white`/`black` to `allow`/`block` in v2.00+.
 
@@ -114,18 +119,17 @@ You can migrate your existing data from DBM to SQLite:
 OLD_DB="/var/db/sentry/sentry.dbm"
 NEW_DB="/var/db/sentry/sentry.db"
 
-# Create new database
+# Create new database with text-based IP keys
 sqlite3 "$NEW_DB" "CREATE TABLE IF NOT EXISTS ip_records (
-    key INTEGER PRIMARY KEY,
-    ip TEXT NOT NULL,
+    ip TEXT PRIMARY KEY,
     seen INTEGER DEFAULT 0,
-    white INTEGER DEFAULT 0,
-    black INTEGER DEFAULT 0
+    allow INTEGER DEFAULT 0,
+    block INTEGER DEFAULT 0
 );"
 
 # Note: Direct DBM to SQLite migration requires Perl
 # You can export the DBM data first, then import to SQLite
-perl -MDBM::Deep -e 'use DBM::Deep; my $db = DBM::Deep->new("'"$OLD_DB"'"); ...'
+# The IP addresses will be stored directly as text strings
 ```
 
 ### Option 3: Run Both Versions

@@ -155,28 +155,6 @@ is_valid_ip() {
     return 1
 }
 
-# Function to convert IP to key for database
-# For IPv4: converts to 32-bit integer
-# For IPv6: uses SHA256 hash (first 63 bits to fit in SQLite INTEGER)
-ip_to_key() {
-    local ip=$1
-    
-    # Check if it's IPv4
-    if [[ "$ip" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-        # IPv4: convert to integer
-        local IFS='.'
-        local -a octets=($ip)
-        local key=$(( (${octets[0]} << 24) + (${octets[1]} << 16) + (${octets[2]} << 8) + ${octets[3]} ))
-        echo "$key"
-    else
-        # IPv6: use hash (SHA256 truncated to fit in signed 64-bit integer)
-        # We use the first 15 hex chars which gives us 60 bits (safe for signed 64-bit)
-        local hash=$(echo -n "$ip" | sha256sum | cut -c1-15)
-        # Convert hex to decimal, ensure it's positive
-        echo $((0x$hash))
-    fi
-}
-
 # Function to initialize database
 init_db() {
     # Create root directory if needed
@@ -189,9 +167,9 @@ init_db() {
     DB_PATH="$ROOT_DIR/sentry.db"
     
     # Create database and table if needed
+    # Using IP address as TEXT PRIMARY KEY for simplicity and readability
     sqlite3 "$DB_PATH" "CREATE TABLE IF NOT EXISTS ip_records (
-        key INTEGER PRIMARY KEY,
-        ip TEXT NOT NULL,
+        ip TEXT PRIMARY KEY,
         seen INTEGER DEFAULT 0,
         allow INTEGER DEFAULT 0,
         block INTEGER DEFAULT 0
@@ -209,8 +187,7 @@ load_ip_record() {
         return
     fi
     
-    local key=$(ip_to_key "$IP")
-    local result=$(sqlite3 "$DB_PATH" "SELECT seen, allow, block FROM ip_records WHERE key = $key;" 2>/dev/null)
+    local result=$(sqlite3 "$DB_PATH" "SELECT seen, allow, block FROM ip_records WHERE ip = '$IP';" 2>/dev/null)
     
     if [ -n "$result" ]; then
         IFS='|' read -r SEEN ALLOW BLOCK <<< "$result"
@@ -220,7 +197,7 @@ load_ip_record() {
         BLOCK=0
     fi
     
-    printf "%4d connections from %s (key: %s)\n" "$SEEN" "$IP" "$key"
+    printf "%4d connections from %s\n" "$SEEN" "$IP"
     if [ "$ALLOW" -ne 0 ]; then
         printf "\tand it is allowed\n"
     fi
@@ -235,9 +212,8 @@ save_ip_record() {
         return
     fi
     
-    local key=$(ip_to_key "$IP")
-    sqlite3 "$DB_PATH" "INSERT OR REPLACE INTO ip_records (key, ip, seen, allow, block) 
-                        VALUES ($key, '$IP', $SEEN, $ALLOW, $BLOCK);" 2>/dev/null
+    sqlite3 "$DB_PATH" "INSERT OR REPLACE INTO ip_records (ip, seen, allow, block) 
+                        VALUES ('$IP', $SEEN, $ALLOW, $BLOCK);" 2>/dev/null
 }
 
 # Function to check if IP is allowed
