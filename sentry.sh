@@ -11,7 +11,7 @@ ADD_TO_TCPWRAPPERS="${ADD_TO_TCPWRAPPERS:-1}"
 ADD_TO_PF="${ADD_TO_PF:-1}"
 ADD_TO_IPFW="${ADD_TO_IPFW:-0}"
 ADD_TO_IPTABLES="${ADD_TO_IPTABLES:-0}"
-FIREWALL_TABLE="${FIREWALL_TABLE:-sentry_blacklist}"
+FIREWALL_TABLE="${FIREWALL_TABLE:-sentry_blocklist}"
 EXPIRE_BLOCK_DAYS="${EXPIRE_BLOCK_DAYS:-90}"  # 0 to never expire
 PROTECT_FTP="${PROTECT_FTP:-1}"
 PROTECT_SMTP="${PROTECT_SMTP:-0}"
@@ -26,8 +26,8 @@ TCPD_DENYLIST=""
 
 # IP record
 SEEN=0
-WHITE=0
-BLACK=0
+ALLOW=0
+BLOCK=0
 
 # Function to print verbose messages
 log_verbose() {
@@ -86,7 +86,44 @@ is_valid_ipv4() {
         fi
     done
     
-    log_verbose "ip $ip is valid"
+    log_verbose "ip $ip is valid IPv4"
+    return 0
+}
+
+# Function to validate IPv6 address
+is_valid_ipv6() {
+    local ip=$1
+    
+    # Basic IPv6 validation - check for valid characters and structure
+    # IPv6 addresses can have :: for zero compression and can include IPv4 at the end
+    
+    # Remove any zone ID (e.g., %eth0)
+    ip="${ip%%%*}"
+    
+    # Check for IPv4-mapped IPv6 (::ffff:x.x.x.x)
+    if [[ "$ip" =~ ^::ffff:[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        log_verbose "ip $ip is valid IPv6 (IPv4-mapped)"
+        return 0
+    fi
+    
+    # Check for valid IPv6 characters
+    if ! [[ "$ip" =~ ^[0-9a-fA-F:]+$ ]]; then
+        return 1
+    fi
+    
+    # Count colons - should have at least 2 and at most 7
+    local colon_count=$(echo "$ip" | tr -cd ':' | wc -c)
+    if [ "$colon_count" -lt 2 ] || [ "$colon_count" -gt 7 ]; then
+        return 1
+    fi
+    
+    # Check for valid double colon (can only appear once)
+    local double_colon_count=$(echo "$ip" | grep -o '::' | wc -l)
+    if [ "$double_colon_count" -gt 1 ]; then
+        return 1
+    fi
+    
+    log_verbose "ip $ip is valid IPv6"
     return 0
 }
 
@@ -98,24 +135,46 @@ is_valid_ip() {
     
     # Handle IPv6 notation like ::ffff:208.75.177.98
     if [[ "$IP" =~ ^::ffff: ]]; then
-        IP="${IP##*:}"
+        # Extract IPv4 part
+        local ipv4="${IP##*:}"
+        if is_valid_ipv4 "$ipv4"; then
+            # Keep the full IPv6 address for compatibility
+            log_verbose "ip $IP is valid (IPv4-mapped IPv6)"
+            return 0
+        fi
     fi
     
     if is_valid_ipv4 "$IP"; then
         return 0
     fi
     
-    # TODO: Add IPv6 support
+    if is_valid_ipv6 "$IP"; then
+        return 0
+    fi
+    
     return 1
 }
 
-# Function to convert IP to integer key
+# Function to convert IP to key for database
+# For IPv4: converts to 32-bit integer
+# For IPv6: uses SHA256 hash (first 63 bits to fit in SQLite INTEGER)
 ip_to_key() {
     local ip=$1
-    local IFS='.'
-    local -a octets=($ip)
-    local key=$(( (${octets[0]} << 24) + (${octets[1]} << 16) + (${octets[2]} << 8) + ${octets[3]} ))
-    echo "$key"
+    
+    # Check if it's IPv4
+    if [[ "$ip" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        # IPv4: convert to integer
+        local IFS='.'
+        local -a octets=($ip)
+        local key=$(( (${octets[0]} << 24) + (${octets[1]} << 16) + (${octets[2]} << 8) + ${octets[3]} ))
+        echo "$key"
+    else
+        # IPv6: use hash (SHA256 truncated to fit in signed 64-bit integer)
+        # We use the first 15 hex chars which gives us 60 bits (safe for signed 64-bit)
+        local hash=$(echo -n "$ip" | sha256sum | cut -c1-15)
+        # Convert hex to decimal, ensure it's positive
+        echo $((0x$hash))
+    fi
 }
 
 # Function to initialize database
@@ -134,8 +193,8 @@ init_db() {
         key INTEGER PRIMARY KEY,
         ip TEXT NOT NULL,
         seen INTEGER DEFAULT 0,
-        white INTEGER DEFAULT 0,
-        black INTEGER DEFAULT 0
+        allow INTEGER DEFAULT 0,
+        block INTEGER DEFAULT 0
     );" || { echo "Failed to create database" >&2; exit 1; }
     
     TCPD_DENYLIST=$(get_denylist_file)
@@ -151,22 +210,22 @@ load_ip_record() {
     fi
     
     local key=$(ip_to_key "$IP")
-    local result=$(sqlite3 "$DB_PATH" "SELECT seen, white, black FROM ip_records WHERE key = $key;" 2>/dev/null)
+    local result=$(sqlite3 "$DB_PATH" "SELECT seen, allow, block FROM ip_records WHERE key = $key;" 2>/dev/null)
     
     if [ -n "$result" ]; then
-        IFS='|' read -r SEEN WHITE BLACK <<< "$result"
+        IFS='|' read -r SEEN ALLOW BLOCK <<< "$result"
     else
         SEEN=0
-        WHITE=0
-        BLACK=0
+        ALLOW=0
+        BLOCK=0
     fi
     
     printf "%4d connections from %s (key: %s)\n" "$SEEN" "$IP" "$key"
-    if [ "$WHITE" -ne 0 ]; then
-        printf "\tand it is whitelisted\n"
+    if [ "$ALLOW" -ne 0 ]; then
+        printf "\tand it is allowed\n"
     fi
-    if [ "$BLACK" -ne 0 ]; then
-        printf "\tand it is blacklisted\n"
+    if [ "$BLOCK" -ne 0 ]; then
+        printf "\tand it is blocked\n"
     fi
 }
 
@@ -177,38 +236,38 @@ save_ip_record() {
     fi
     
     local key=$(ip_to_key "$IP")
-    sqlite3 "$DB_PATH" "INSERT OR REPLACE INTO ip_records (key, ip, seen, white, black) 
-                        VALUES ($key, '$IP', $SEEN, $WHITE, $BLACK);" 2>/dev/null
+    sqlite3 "$DB_PATH" "INSERT OR REPLACE INTO ip_records (key, ip, seen, allow, block) 
+                        VALUES ($key, '$IP', $SEEN, $ALLOW, $BLOCK);" 2>/dev/null
 }
 
-# Function to check if IP is whitelisted
-is_whitelisted() {
-    if [ "$WHITE" -eq 0 ]; then
+# Function to check if IP is allowed
+is_allowed() {
+    if [ "$ALLOW" -eq 0 ]; then
         return 1
     fi
-    log_verbose "is whitelisted"
+    log_verbose "is allowed"
     return 0
 }
 
-# Function to check if IP is blacklisted
-is_blacklisted() {
-    if [ "$BLACK" -eq 0 ]; then
+# Function to check if IP is blocked
+is_blocked() {
+    if [ "$BLOCK" -eq 0 ]; then
         return 1
     fi
     
-    log_verbose "is blacklisted"
+    log_verbose "is blocked"
     
-    # Check if we should expire old blacklist entries
+    # Check if we should expire old block entries
     if [ "$EXPIRE_BLOCK_DAYS" -eq 0 ]; then
         return 0
     fi
     
-    local bl_ts=$BLACK
+    local bl_ts=$BLOCK
     local now=$(date +%s)
     local days_old=$(( (now - bl_ts) / 86400 ))
     
     if [ "$days_old" -gt "$EXPIRE_BLOCK_DAYS" ]; then
-        do_unblacklist
+        do_unblock
     fi
     
     return 0
@@ -262,11 +321,11 @@ check_setup() {
 do_connect() {
     SEEN=$((SEEN + 1))
     
-    if is_whitelisted; then
+    if is_allowed; then
         return 0
     fi
     
-    if is_blacklisted; then
+    if is_blocked; then
         return 0
     fi
     
@@ -285,10 +344,10 @@ do_connect() {
     fi
 }
 
-# Whitelist action
-do_whitelist() {
-    log_verbose "whitelisting $IP"
-    WHITE=$(date +%s)
+# Allow action
+do_allow() {
+    log_verbose "allowing $IP"
+    ALLOW=$(date +%s)
     
     if [ "$ADD_TO_TCPWRAPPERS" -eq 1 ]; then
         allow_tcpwrappers
@@ -301,10 +360,10 @@ do_whitelist() {
     fi
 }
 
-# Blacklist action
-do_blacklist() {
-    log_verbose "blacklisting $IP"
-    BLACK=$(date +%s)
+# Block action
+do_block() {
+    log_verbose "blocking $IP"
+    BLOCK=$(date +%s)
     
     if [ "$ADD_TO_TCPWRAPPERS" -eq 1 ]; then
         block_tcpwrappers
@@ -319,14 +378,14 @@ do_blacklist() {
 
 # Delist action
 do_delist() {
-    do_unblacklist
-    do_unwhitelist
+    do_unblock
+    do_unallow
 }
 
-# Unblacklist
-do_unblacklist() {
-    log_verbose "unblacklisting $IP"
-    BLACK=0
+# Unblock
+do_unblock() {
+    log_verbose "unblocking $IP"
+    BLOCK=0
     
     if [ "$ADD_TO_TCPWRAPPERS" -eq 1 ]; then
         unblock_tcpwrappers
@@ -339,10 +398,10 @@ do_unblacklist() {
     fi
 }
 
-# Unwhitelist
-do_unwhitelist() {
-    log_verbose "unwhitelisting $IP"
-    WHITE=0
+# Unallow
+do_unallow() {
+    log_verbose "unallowing $IP"
+    ALLOW=0
 }
 
 # Report action
@@ -358,13 +417,13 @@ do_report() {
     
     local unique_ips=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM ip_records;")
     local total_seen=$(sqlite3 "$DB_PATH" "SELECT SUM(seen) FROM ip_records;")
-    local white_count=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM ip_records WHERE white > 0;")
-    local black_count=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM ip_records WHERE black > 0;")
+    local allow_count=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM ip_records WHERE allow > 0;")
+    local block_count=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM ip_records WHERE block > 0;")
     
     echo "   -------- summary ---------"
     printf "%4d unique IPs have connected %s times\n" "$unique_ips" "${total_seen:-0}"
-    printf "%4d IPs are whitelisted\n" "$white_count"
-    printf "%4d IPs are blacklisted\n" "$black_count"
+    printf "%4d IPs are allowed\n" "$allow_count"
+    printf "%4d IPs are blocked\n" "$block_count"
     echo ""
 }
 
@@ -406,17 +465,17 @@ parse_ssh_logs() {
     log_verbose "SSH: success=$success, failed=$failed, naughty=$naughty, total=$total"
     
     if [ "$success" -gt 0 ]; then
-        do_whitelist
+        do_allow
         return
     fi
     
     if [ "$naughty" -gt 0 ]; then
-        do_blacklist
+        do_block
         return
     fi
     
     if [ "$total" -gt 10 ]; then
-        do_blacklist
+        do_block
     fi
 }
 
@@ -583,20 +642,21 @@ NAME
     sentry - safe and effective protection against bruteforce attacks
 
 SYNOPSIS
-    sentry.sh --ip=N.N.N.N [ --connect | --blacklist | --whitelist | --delist ]
+    sentry.sh --ip=N.N.N.N [ --connect | --block | --allow | --delist ]
     sentry.sh --report [--verbose --ip=N.N.N.N ]
     sentry.sh --help
 
 DESCRIPTION
     Sentry detects and prevents bruteforce attacks against sshd using minimal
-    system resources. Now implemented in bash with SQLite instead of Perl DBM.
+    system resources. Implemented in bash with SQLite for database persistence.
+    Supports both IPv4 and IPv6.
 
 OPTIONS
-    --ip=IP         Specify an IP address
+    --ip=IP         Specify an IP address (IPv4 or IPv6)
     --connect       Register a connection by an IP
-    --whitelist     Whitelist all future connections
-    --blacklist     Deny all future connections
-    --delist        Remove an IP from white and blacklists
+    --allow         Allow all future connections from this IP
+    --block         Block all future connections from this IP
+    --delist        Remove an IP from allow and block lists
     --report        Display a report of connections
     --verbose       Show verbose output
     --help          Show this help message
@@ -604,9 +664,10 @@ OPTIONS
 EXAMPLES
     # Register a connection
     sentry.sh --ip=192.168.1.1 --connect
+    sentry.sh --ip=2001:db8::1 --connect
     
-    # Whitelist an IP
-    sentry.sh --ip=192.168.1.1 --whitelist
+    # Allow an IP
+    sentry.sh --ip=192.168.1.1 --allow
     
     # Show report
     sentry.sh --report --verbose
@@ -631,16 +692,26 @@ main() {
                 ACTION="connect"
                 shift
                 ;;
-            --whitelist)
-                ACTION="whitelist"
+            --allow)
+                ACTION="allow"
                 shift
                 ;;
-            --blacklist)
-                ACTION="blacklist"
+            --block)
+                ACTION="block"
                 shift
                 ;;
             --delist)
                 ACTION="delist"
+                shift
+                ;;
+            --whitelist)
+                # Backward compatibility
+                ACTION="allow"
+                shift
+                ;;
+            --blacklist)
+                # Backward compatibility
+                ACTION="block"
                 shift
                 ;;
             --report)
@@ -689,11 +760,11 @@ main() {
             check_setup
             do_connect
             ;;
-        whitelist)
-            do_whitelist
+        allow)
+            do_allow
             ;;
-        blacklist)
-            do_blacklist
+        block)
+            do_block
             ;;
         delist)
             do_delist
