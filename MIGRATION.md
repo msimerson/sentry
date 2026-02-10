@@ -22,13 +22,15 @@ The old Perl version used DBM files (`sentry.dbm`). The new Bash version uses SQ
 **New format (SQLite):**
 ```sql
 CREATE TABLE ip_records (
-    key INTEGER PRIMARY KEY,    -- IP as integer
-    ip TEXT NOT NULL,           -- IP as dotted notation
+    key INTEGER PRIMARY KEY,    -- IP as integer (or hash for IPv6)
+    ip TEXT NOT NULL,           -- IP as dotted notation or IPv6
     seen INTEGER DEFAULT 0,     -- Connection count
-    white INTEGER DEFAULT 0,    -- Whitelist timestamp (0 = not whitelisted)
-    black INTEGER DEFAULT 0     -- Blacklist timestamp (0 = not blacklisted)
+    allow INTEGER DEFAULT 0,    -- Allow timestamp (0 = not allowed)
+    block INTEGER DEFAULT 0     -- Block timestamp (0 = not blocked)
 );
 ```
+
+**Note**: Column names changed from `white`/`black` to `allow`/`block` in v2.00+.
 
 ### File Locations
 
@@ -51,13 +53,16 @@ sentry.sh --ip=192.168.1.1 --connect
 ```
 
 All options work the same way:
-- `--ip=IP` - Specify an IP address
+- `--ip=IP` - Specify an IP address (IPv4 or IPv6)
 - `--connect` - Register a connection
-- `--whitelist` - Whitelist an IP
-- `--blacklist` - Blacklist an IP
-- `--delist` - Remove from white/blacklist
+- `--allow` - Allow an IP (replaces `--whitelist`)
+- `--block` - Block an IP (replaces `--blacklist`)
+- `--delist` - Remove from allow/block lists
 - `--report` - Show statistics
 - `--verbose` - Verbose output
+- `--help` - Show help
+
+**Note**: `--whitelist` and `--blacklist` are maintained for backward compatibility but are deprecated in favor of `--allow` and `--block`.
 - `--help` - Show help
 
 ## Installation
@@ -170,11 +175,11 @@ mkdir -p /tmp/sentry_test
 ROOT_DIR=/tmp/sentry_test /var/db/sentry/sentry.sh --ip=192.168.1.1 --connect
 ROOT_DIR=/tmp/sentry_test /var/db/sentry/sentry.sh --report
 
-# Test whitelist
-ROOT_DIR=/tmp/sentry_test /var/db/sentry/sentry.sh --ip=192.168.1.1 --whitelist
+# Test allow
+ROOT_DIR=/tmp/sentry_test /var/db/sentry/sentry.sh --ip=192.168.1.1 --allow
 
-# Test blacklist
-ROOT_DIR=/tmp/sentry_test /var/db/sentry/sentry.sh --ip=10.0.0.1 --blacklist
+# Test block
+ROOT_DIR=/tmp/sentry_test /var/db/sentry/sentry.sh --ip=10.0.0.1 --block
 
 # Check the database
 sqlite3 /tmp/sentry_test/sentry.db "SELECT * FROM ip_records;"
@@ -207,16 +212,16 @@ Adjust the script if your logs are in different locations.
 
 ### What's the Same
 
-- All core functionality (connect, whitelist, blacklist, delist, report)
+- All core functionality (connect, allow, block, delist, report)
 - Tcpwrappers integration
 - PF firewall integration
 - IP validation
-- Automatic whitelisting after successful logins
-- Blacklisting after naughty attempts
+- Automatic allow-listing after successful logins
+- Blocking after naughty attempts
 
 ### What's Different
 
-1. **No IPv6 Support (Yet)**: The bash version currently only supports IPv4. IPv6 support can be added if needed.
+1. **IPv6 Support**: The bash version now supports both IPv4 and IPv6 addresses.
 
 2. **Simplified Log Parsing**: The log parsing in the bash version is simpler than the Perl version. It may not catch all edge cases.
 
