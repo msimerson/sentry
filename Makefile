@@ -3,7 +3,7 @@
 all: test
 
 test:
-	@./t/run-tests.sh
+	@./test/run-tests.sh
 
 install:
 	@echo "Installing sentry.sh to /var/db/sentry/"
