@@ -13,7 +13,7 @@ chmod 755 sentry.sh
 
 ```sh
 mkdir -p /var/db/sentry
-mv sentry.sh /var/db/sentry/
+mv sentry.sh /var/db/sentry/sentry
 ```
 
 ## Configure tcpwrappers
@@ -22,13 +22,13 @@ Add these lines near the top of your `/etc/hosts.allow` file:
 
 ```
 sshd : /var/db/sentry/hosts.deny : deny
-sshd : ALL : spawn /var/db/sentry/sentry.sh --connect --ip=%a : allow
+sshd : ALL : spawn /var/db/sentry/sentry --connect --ip=%a : allow
 ```
 
 ## Test
 
 ```sh
-/var/db/sentry/sentry.sh --report
+/var/db/sentry/sentry --report
 ```
 
 That's all!
@@ -37,8 +37,8 @@ That's all!
 
 ```sh
 cd /var/db/sentry
-curl -O https://raw.githubusercontent.com/msimerson/sentry/master/sentry.sh
-chmod 755 sentry.sh
+curl -o sentry https://raw.githubusercontent.com/msimerson/sentry/master/sentry.sh
+chmod 755 sentry
 ```
 
 ## Requirements

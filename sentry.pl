@@ -89,7 +89,7 @@ sub is_valid_ip {
     };
 
     if ( $ip =~ /^::ffff:/ ) {
-# we have seen $ip in this IPv6 notation: ::ffff:208.75.177.98
+        # we have seen $ip in this IPv6 notation: ::ffff:208.75.177.98
         ($ip) = (split /:/, $ip)[-1]; # grab everything after the last :
     };
 
@@ -168,7 +168,7 @@ sub configure_tcpwrappers {
     my $spawn = 'sshd : ALL : spawn ' . $script_loc . ' -c --ip=%a : allow';
 
     if ( $OSNAME =~ /freebsd|linux/ ) {
-# FreeBSD & Linux have a modified tcpd, adding support for include files
+        # FreeBSD & Linux have a modified tcpd, adding support for include files
         print "
 NOTICE: you need to add these lines near the top of your /etc/hosts.allow file\n
 sshd : $tcpd_denylist : deny
@@ -402,9 +402,9 @@ sub _get_script_location {
 
 sub _get_denylist_file {
 
-# Linux and FreeBSD systems have custom versions of libwrap that permit
-# storing IP lists in file referenced from hosts.allow or hosts.deny.
-# On those systems, dump the blacklisted IPs into a special file
+    # Linux and FreeBSD systems have custom versions of libwrap that permit
+    # storing IP lists in file referenced from hosts.allow or hosts.deny.
+    # On those systems, dump the blacklisted IPs into a special file
 
     return "$root_dir/hosts.deny" if $OSNAME =~ /linux|freebsd/i;
     return "/etc/hosts.deny";
@@ -485,17 +485,18 @@ sub _block_tcpwrappers {
 
     # prepend the naughty IP to the hosts.deny file
     open(my $TMP, '>', "$tcpd_denylist.tmp") or warn $error and return;
-### WARY: THAR BE DRAGONS HERE!
+
+    ### WARY: THAR BE DRAGONS HERE!
     print $TMP "ALL: $ip : deny\n";
-# Linux and FreeBSD support an external filename referenced from
-# /etc/hosts.[allow|deny]. However, that filename parsing is not
-# identical to /etc/hosts.allow. Specifically, this works as
-# expected in /etc/hosts.allow:
-#    ALL : N.N.N.N : deny
-# but it does not work in an external file! Be sure to use this syntax:
-#    ALL: N.N.N.N : deny
-# Lest thee find thyself wishing thou hadst
-### /WARY
+    # Linux and FreeBSD support an external filename referenced from
+    # /etc/hosts.[allow|deny]. However, that filename parsing is not
+    # identical to /etc/hosts.allow. Specifically, this works as
+    # expected in /etc/hosts.allow:
+    #    ALL : N.N.N.N : deny
+    # but it does not work in an external file! Be sure to use this syntax:
+    #    ALL: N.N.N.N : deny
+    # Lest thee find thyself wishing thou hadst
+    ### /WARY
 
     # append the current hosts.deny to the temp file
     if ( -e $tcpd_denylist && -r $tcpd_denylist ) {
@@ -520,7 +521,7 @@ sub _block_ipfw {
         return;
     };
 
-# TODO: set this to a reasonable default
+    # TODO: set this to a reasonable default
     my $cmd = "add deny all from $ip to any";
     warn "$ipfw $cmd\n";
     #system "$ipfw $cmd";  # TODO: this this
@@ -589,7 +590,7 @@ sub _unblock_ipfw {
         return;
     };
 
-# TODO: test that this is reasonable
+    # TODO: test that this is reasonable
     my $cmd = "delete deny all from $ip to any";
     warn "$ipfw $cmd\n";
     #system "$ipfw $cmd";
@@ -614,15 +615,15 @@ sub _unblock_pf {
 sub _parse_ssh_logs {
     my $ssh_attempts = _get_ssh_logs();
 
-# fail safely. If we can't parse the logs, skip the white/blacklist steps
+    # fail safely. If we can't parse the logs, skip the white/blacklist steps
     return if ! $ssh_attempts;
 
     if ( $ssh_attempts->{success} ) { do_whitelist(); return; };
     if ( $ssh_attempts->{naughty} ) { do_blacklist(); return; };
 
-# do not use $seen_count here. If the ssh log parsing failed for any reason,
-# legit users would not get whitelisted, and then after 10 attempts they
-# would get backlisted.
+    # do not use $seen_count here. If the ssh log parsing failed for any reason,
+    # legit users would not get whitelisted, and then after 10 attempts they
+    # would get backlisted.
 
     # no success or naughty, but > 10 connects, blacklist
     do_blacklist() if $ssh_attempts->{total} > 10;
@@ -642,14 +643,14 @@ sub _get_ssh_logs {
         next if $line !~ / sshd/;
         next if $line !~ /$ip/;
 
-# consider using Parse::Syslog if available
-#
-# WARNING: if you modify this, be mindful of log injection attacks.
-# Anchor any regexps or otherwise exclude the user modifiable portions of the
-# log entries when parsing
+        # consider using Parse::Syslog if available
+        #
+        # WARNING: if you modify this, be mindful of log injection attacks.
+        # Anchor any regexps or otherwise exclude the user modifiable portions of the
+        # log entries when parsing
 
-# Dec  3 12:14:16 pe   sshd[4026]: Accepted publickey for tnpimatt from 67.171.0.90 port 45189 ssh2
-# Feb  8 20:49:21 spry sshd[1550]: Failed password for invalid user pentakill from 93.62.1.201 port 33210 ssh2
+        # Dec  3 12:14:16 pe   sshd[4026]: Accepted publickey for tnpimatt from 67.171.0.90 port 45189 ssh2
+        # Feb  8 20:49:21 spry sshd[1550]: Failed password for invalid user pentakill from 93.62.1.201 port 33210 ssh2
 
         my @bits = split /\s+/, $line;  # split on WS
         if    ( $bits[5] eq 'Accepted' ) { $count{success}++  }
@@ -667,7 +668,7 @@ sub _get_ssh_logs {
         elsif ( $bits[5] eq 'error:' ) {
             $count{naughty}++ and next if $line =~ /exceeded for root/;
             if ( $bits[6] eq 'PAM:' ) {
-# FreeBSD PAM authentication
+                # FreeBSD PAM authentication
                 $count{naughty}++ and next if $line =~ /error for root/;
                 $count{failed}++ and next if $line =~ /authentication error/;
                 $count{naughty}++ and next if $line =~ /(invalid|illegal) user/;
@@ -675,17 +676,17 @@ sub _get_ssh_logs {
             $count{errors}++;
         }
         else {
-#            if ( $line =~ /POSSIBLE BREAK-IN ATTEMPT!$/ ) {
-# This only means their forward/reverse DNS isn't set up properly. Not a
-# good criteria for blacklisting
-#                $count{naughty}++;
-#            };
-#
-#            if ( $line =~ /Did not receive identification string from/ ) {
-# This entry means that something connected using the SSH protocol, but didn't
-# attempt to authenticate. This could a SSH version probe, or a
-# monitoring tool like Nagios or Hobbit.
-#            };
+            # if ( $line =~ /POSSIBLE BREAK-IN ATTEMPT!$/ ) {
+            #     # Their forward/reverse DNS isn't set up properly. Not a
+            #     # good criteria for blacklisting
+            #    $count{naughty}++;
+            # };
+
+            # if ( $line =~ /Did not receive identification string from/ ) {
+            #     # This entry means that something connected using the SSH protocol, but didn't
+            #     # attempt to authenticate. This could a SSH version probe, or a
+            #     # monitoring tool like Nagios or Hobbit.
+            # };
 
             $count{unknown}++;
             print "unknown: $bits[5]: $line\n";

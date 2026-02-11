@@ -1,7 +1,0 @@
-language: bash
-script:
-  - ./t/run-tests.sh
-addons:
-  apt:
-    packages:
-      - shellcheck

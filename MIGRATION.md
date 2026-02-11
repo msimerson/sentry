@@ -43,7 +43,7 @@ Both versions use the same directory structure:
 - Default root: `/var/db/sentry/`
 - Database: `sentry.db` (new) vs `sentry.dbm` (old)
 - Deny list: `hosts.deny`
-- Script: `sentry.sh` (new) vs `sentry.pl` (old)
+- Script: `sentry` (new) vs `sentry.pl` (old)
 
 ### Command Line Interface
 
@@ -54,7 +54,7 @@ The command-line interface is identical:
 sentry.pl --ip=192.168.1.1 --connect
 
 # Bash version
-sentry.sh --ip=192.168.1.1 --connect
+sentry --ip=192.168.1.1 --connect
 ```
 
 All options work the same way:
@@ -65,9 +65,6 @@ All options work the same way:
 - `--delist` - Remove from allow/block lists
 - `--report` - Show statistics
 - `--verbose` - Verbose output
-- `--help` - Show help
-
-**Note**: `--whitelist` and `--blacklist` are maintained for backward compatibility but are deprecated in favor of `--allow` and `--block`.
 - `--help` - Show help
 
 ## Installation
@@ -81,9 +78,8 @@ All options work the same way:
 
 1. Download the script:
 ```bash
-cd /var/db/sentry
-curl -O https://raw.githubusercontent.com/msimerson/sentry/master/sentry.sh
-chmod 755 sentry.sh
+curl -o /var/db/sentry/sentry https://raw.githubusercontent.com/msimerson/sentry/master/sentry.sh
+chmod 755 /var/db/sentry/sentry
 ```
 
 2. Update your `/etc/hosts.allow` to use the new script:
@@ -92,68 +88,22 @@ chmod 755 sentry.sh
 sshd : ALL : spawn /var/db/sentry/sentry.pl --connect --ip=%a : allow
 
 # New:
-sshd : ALL : spawn /var/db/sentry/sentry.sh --connect --ip=%a : allow
+sshd : ALL : spawn /var/db/sentry/sentry --connect --ip=%a : allow
 ```
 
 3. Test it:
 ```bash
-/var/db/sentry/sentry.sh --report
+/var/db/sentry/sentry --report
 ```
-
-## Migration from Perl to Bash
-
-If you're currently using the Perl version and want to migrate:
-
-### Option 1: Fresh Start (Recommended for Testing)
-
-Simply install the bash version in parallel and point tcpwrappers to use it. The database will start fresh.
-
-### Option 2: Data Migration (Advanced)
-
-You can migrate your existing data from DBM to SQLite:
-
-```bash
-#!/bin/bash
-# Migration script (example - customize as needed)
-
-OLD_DB="/var/db/sentry/sentry.dbm"
-NEW_DB="/var/db/sentry/sentry.db"
-
-# Create new database with text-based IP keys
-sqlite3 "$NEW_DB" "CREATE TABLE IF NOT EXISTS ip_records (
-    ip TEXT PRIMARY KEY,
-    seen INTEGER DEFAULT 0,
-    allow INTEGER DEFAULT 0,
-    block INTEGER DEFAULT 0
-);"
-
-# Note: Direct DBM to SQLite migration requires Perl
-# You can export the DBM data first, then import to SQLite
-# The IP addresses will be stored directly as text strings
-```
-
-### Option 3: Run Both Versions
-
-You can keep both versions installed and switch between them as needed:
-
-```bash
-# Use Perl version
-/var/db/sentry/sentry.pl --report
-
-# Use Bash version
-/var/db/sentry/sentry.sh --report
-```
-
-Note: They maintain separate databases, so statistics won't be shared.
 
 ## Configuration
 
-Configuration is done by editing variables at the top of `sentry.sh`:
+Configuration is done by editing variables at the top of `sentry`:
 
 ```bash
 ROOT_DIR="${ROOT_DIR:-/var/db/sentry}"
 ADD_TO_TCPWRAPPERS="${ADD_TO_TCPWRAPPERS:-1}"
-ADD_TO_PF="${ADD_TO_PF:-1}"
+ADD_TO_PF="${ADD_TO_PF:-0}"
 ADD_TO_IPFW="${ADD_TO_IPFW:-0}"
 EXPIRE_BLOCK_DAYS="${EXPIRE_BLOCK_DAYS:-90}"
 PROTECT_FTP="${PROTECT_FTP:-1}"
@@ -164,29 +114,7 @@ PROTECT_MUA="${PROTECT_MUA:-1}"
 Alternatively, you can override these via environment variables:
 
 ```bash
-ROOT_DIR=/tmp/sentry_test sentry.sh --report
-```
-
-## Testing
-
-Test the bash version before deploying to production:
-
-```bash
-# Create a test directory
-mkdir -p /tmp/sentry_test
-
-# Test basic functionality
-ROOT_DIR=/tmp/sentry_test /var/db/sentry/sentry.sh --ip=192.168.1.1 --connect
-ROOT_DIR=/tmp/sentry_test /var/db/sentry/sentry.sh --report
-
-# Test allow
-ROOT_DIR=/tmp/sentry_test /var/db/sentry/sentry.sh --ip=192.168.1.1 --allow
-
-# Test block
-ROOT_DIR=/tmp/sentry_test /var/db/sentry/sentry.sh --ip=10.0.0.1 --block
-
-# Check the database
-sqlite3 /tmp/sentry_test/sentry.db "SELECT * FROM ip_records;"
+ROOT_DIR=/tmp/sentry_test sentry --report
 ```
 
 ## Troubleshooting
@@ -194,14 +122,6 @@ sqlite3 /tmp/sentry_test/sentry.db "SELECT * FROM ip_records;"
 ### SQLite Database Locked
 
 If you see "database is locked" errors, ensure no other processes are accessing the database simultaneously.
-
-### Permissions
-
-Ensure the script has proper permissions:
-```bash
-chmod 755 /var/db/sentry/sentry.sh
-chown root:root /var/db/sentry/sentry.sh
-```
 
 ### Log Files Not Found
 
@@ -214,24 +134,13 @@ Adjust the script if your logs are in different locations.
 
 ## Differences and Limitations
 
-### What's the Same
-
-- All core functionality (connect, allow, block, delist, report)
-- Tcpwrappers integration
-- PF firewall integration
-- IP validation
-- Automatic allow-listing after successful logins
-- Blocking after naughty attempts
-
 ### What's Different
 
-1. **IPv6 Support**: The bash version now supports both IPv4 and IPv6 addresses.
+1. **Simplified Log Parsing**: The log parsing in the bash version is simpler than the Perl version. It may not catch all edge cases.
 
-2. **Simplified Log Parsing**: The log parsing in the bash version is simpler than the Perl version. It may not catch all edge cases.
+2. **No Auto-Update**: The `--update` option from the Perl version is not implemented in the bash version. Update manually via git or curl.
 
-3. **No Auto-Update**: The `--update` option from the Perl version is not implemented in the bash version. Update manually via git or curl.
-
-4. **IPFW Support**: The IPFW firewall support is a placeholder and not fully implemented.
+3. **IPFW Support**: The IPFW firewall support is not implemented.
 
 ## Support
 

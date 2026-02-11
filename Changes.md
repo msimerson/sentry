@@ -1,4 +1,8 @@
 
+### 2.00 2026-02-10
+
+- ported to bash
+
 ### 1.06  2019-12-19
 
 - don't try using Net::IP when it's not installed, fixes #8

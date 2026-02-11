@@ -2,21 +2,12 @@
 
 sentry - safe and effective protection against bruteforce attacks
 
-# VERSIONS
-
-Sentry is available in two implementations:
-- **Bash version** (`sentry.sh`): Uses SQLite database, minimal dependencies
-- **Perl version** (`sentry.pl`): Original implementation using DBM
-
-See [MIGRATION.md](MIGRATION.md) for details on the differences and how to migrate.
-
 # SYNOPSIS
 
 ```sh
 sentry --ip=N.N.N.N [ --connect | --block | --allow | --delist ]
 sentry --report [--verbose --ip=N.N.N.N ]
 sentry --help
-sentry --update  # Perl version only
 ```
 
 # ADDITIONAL DOCUMENTATION
@@ -33,30 +24,19 @@ Sentry detects and prevents bruteforce attacks against sshd using minimal system
 
 To prevent inadvertant lockouts, Sentry auto-allows IPs that have connected more than 3 times and succeeded at least once. Now that forgetful colleague behind the office NAT router won't get us locked out of our system. Again. Nor the admin whose script just failed to login 12 times in 2 seconds.
 
-Sentry includes support for adding IPs to a firewall. Support for IPFW, PF, ipchains is included. Firewall support is disabled by default. Firewall rules may terminate existing session(s) to the host (attn. IPFW users). Get your IPs on the allow list (connect 3x or use --allow) before enabling the firewall option.
-
-## SIMPLE
-
-Sentry is available in both Perl and Bash implementations:
-
-- **Perl version**: No dependencies beyond core Perl modules
-- **Bash version**: Requires only bash and sqlite3 (commonly available)
-
-Installation and deployment is extremely simple for both versions.
+Sentry includes support for adding IPs to a firewall. Support for PF is included. IPFW and ipchains can be easily extended. Firewall support is disabled by default. Firewall rules may terminate existing session(s) to the host (attn. IPFW users). Get your IPs on the allow list (connect 3x or use --allow) before enabling the firewall option.
 
 ## FLEXIBLE
 
-Sentry supports blocking connection attempts using tcpwrappers and several
-popular firewalls. It is easy to extend sentry to support additional
-blocking lists.
+Sentry supports blocking connection attempts using tcpwrappers and popular firewalls. It is easy to extend sentry to support additional blocking lists.
 
-Sentry was written to protect the SSH daemon but also blocks on FTP and MUA logs. As this was written, the primary attack platform in use is bot nets comprised of exploited PCs on high-speed internet connections. These bots are used for carrying out SSH attacks as well as spam delivery. Blocking bots prevents multiple attack vectors.
+Sentry was written to protect the SSH daemon but can also blocks on FTP and MUA logs. As this was written, the primary attack platform in use is bot nets comprised of exploited PCs on high-speed internet connections. These bots are used for carrying out SSH attacks as well as spam delivery. Blocking bots prevents multiple attack vectors.
 
 The programming style of sentry makes it easy to insert code for additonal functionality.
 
 ## EFFICIENT
 
-The primary goal of Sentry is to minimize the resources an attacker can steal, while consuming minimal resources itself. Most bruteforce blocking apps (denyhosts, fail2ban, sshdfilter) expect to run as a daemon, tailing a log file. That requires a language interpreter to always be running, consuming at least 10MB of RAM. A single hardware node with dozens of virtual servers will lose hundreds of megs to daemon protection. Sentry uses resources only when connections are made.
+The primary goal of Sentry is to minimize the resources an attacker can steal, while consuming minimal resources itself. Most bruteforce blocking apps (denyhosts, fail2ban, sshdfilter) expect to run as a daemon, tailing a log file. That requires a program and perhaps a language interpreter to always be running, consuming CPU and RAM. A single hardware node with dozens of virtual servers can lose hundreds of megs to daemon protection. Sentry uses resources only when connections are made.
 
 Once an IP is blocked for abuse, whether by tcpd or a firewall, the resources it can consume are practically zero.
 
@@ -64,14 +44,9 @@ Once an IP is blocked for abuse, whether by tcpd or a firewall, the resources it
 
 - ip
 
-    An IP address. The IP should come from a reliable source that is
-    difficult to spoof. Tcpwrappers is an excellent source. UDP connections
-    are a poor source as they are easily spoofed. The log files of TCP daemons
-    can be good source if they are parsed carefully to avoid log injection attacks.
+    An IP address. The IP should come from a reliable source that is difficult to spoof. Tcpwrappers is an excellent source. UDP connections are a poor source as they are easily spoofed. The log files of TCP daemons can be good source if they are parsed carefully to avoid log injection attacks.
 
-All actions except __report__ and __help__ require an IP address. The IP address can
-be manually specified by an administrator, or preferably passed in by a TCP
-server such as tcpd (tcpwrappers), inetd, or tcpserver (daemontools).
+All actions except __report__ and __help__ require an IP address. The IP address can be manually specified by an administrator, or preferably passed in by a TCP server such as tcpd (tcpwrappers), inetd, or tcpserver (daemontools).
 
 # ACTIONS
 
@@ -106,75 +81,52 @@ See
 
 # NAUGHTY
 
-Sentry has flexible rules for what constitutes a naughty connection. For SSH,
-attempts to log in as an invalid user are considered naughty.
-See the configuration section in the script related settings.
+Sentry has flexible rules for what constitutes a naughty connection. For SSH, attempts to log in as an invalid user are considered naughty. See the configuration section in the script related settings.
 
 
 # CONNECT
 
-When new connections arrive, the connect method will log the attempt
-and the time. If the IP is on the allow or block list, sentry exits immediately.
+When new connections arrive, the connect method will log the attempt and the time. If the IP is on the allow or block list, sentry exits immediately.
 
-Next, sentry checks to see if the IP has been seen more than 3 times. If so,
-check the logs for successful, failed, and naughty attempts from that IP.
-If there are any successful logins, allow the IP and exit.
+Next, sentry checks to see if the IP has been seen more than 3 times. If so, check the logs for successful, failed, and naughty attempts from that IP. If there are any successful logins, allow the IP and exit.
 
-If there are no successful logins and there are naughty ones, block
-the IP. If there are no successful and no naughty attempts but more than 10
-connection attempts, block the IP. See also NAUGHTY.
-
+If there are no successful logins and there are naughty ones, block the IP. If there are no successful and no naughty attempts but more than 10 connection attempts, block the IP. See also NAUGHTY.
 
 # CONFIGURATION AND ENVIRONMENT
 
-There is a very brief configuration section at the top of the script. Once
-your IP is on the allow list, update the booleans for your firewall preference
-and Sentry will update your firewall too.
+There is a very brief configuration section at the top of the script. Once your IP is on the allow list, update the booleans for your firewall preference and Sentry will update your firewall too.
 
-Sentry does NOT make changes to your firewall configuration. It merely adds
-IPs to a table/list/chain. It does this dynamically and it is up to the
-firewall administrator to add a rule that does whatever you'd like with the
-IPs in the sentry table.
+Sentry does NOT make changes to your firewall configuration. It merely adds IPs to a table/list/chain. It does this dynamically and it is up to the firewall administrator to add a rule that does whatever you'd like with the IPs in the sentry table.
 
 See also: [PF](https://github.com/msimerson/sentry/wiki/PF)
 
 
 # DIAGNOSTICS
 
-Sentry can be run with --verbose which will print informational messages
-as it runs.
+Sentry can be run with --verbose which will print informational messages as it runs.
 
 # DEPENDENCIES
 
-Sentry uses only modules built into perl. Additional modules may be used in
-the future but Sentry will not depend upon them. In other words, if you extend
-Sentry with modules are aren't built-ins, also include a fallback method.
+Sentry requires sqlite3 and bash.
 
 # BUGS AND LIMITATIONS
 
-
-The IPFW and ipchains code is barely tested.
+The IPFW and ipchains code exists only in the perl version and is barely tested.
 
 Report problems to author.
-
 
 # AUTHOR
 
 Matt Simerson (@msimerson)
 
-
 # ACKNOWLEDGEMENTS
 
 Those who came before me: denyhosts, fail2ban, sshblacklist, et al
 
-
 # LICENCE AND COPYRIGHT
 
-Copyright (c) 2015 The Network People, Inc. http://www.tnpi.net/
+Copyright (c) 2015-2026 The Network People, Inc. http://www.tnpi.net/
 
-This module is free software; you can redistribute it and/or
-modify it under the same terms as Perl itself. See [perlartistic](http://search.cpan.org/perldoc?perlartistic).
+This module is free software; you can redistribute it and/or modify it under the same terms as Perl itself. See [perlartistic](http://search.cpan.org/perldoc?perlartistic).
 
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
