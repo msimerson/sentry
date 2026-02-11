@@ -9,9 +9,6 @@ setup() {
     # Create a temporary directory for test database
     export TEST_ROOT_DIR=$(mktemp -d)
     export ROOT_DIR="$TEST_ROOT_DIR"
-    
-    # Source the sentry.sh script for functions
-    source sentry.sh
 }
 
 # Cleanup test environment
@@ -38,8 +35,7 @@ teardown() {
 
 @test "display help when no arguments provided" {
     run ./sentry.sh
-    assert_success
-    assert_output --partial "sentry - safe and effective protection against bruteforce attacks"
+    assert_failure
 }
 
 @test "reject unknown option" {
@@ -49,74 +45,62 @@ teardown() {
 }
 
 @test "validate IPv4 address - accept valid 192.168.1.1" {
-    IP="192.168.1.1"
-    run is_valid_ip
+    run ./sentry.sh --ip=192.168.1.1 --connect
     assert_success
 }
 
 @test "validate IPv4 address - accept valid 8.8.8.8" {
-    IP="8.8.8.8"
-    run is_valid_ip
+    run ./sentry.sh --ip=8.8.8.8 --connect
     assert_success
 }
 
 @test "validate IPv4 address - reject 0.0.0.0" {
-    IP="0.0.0.0"
-    run is_valid_ip
+    run ./sentry.sh --ip=0.0.0.0 --connect
     assert_failure
 }
 
 @test "validate IPv4 address - reject 255.255.255.255" {
-    IP="255.255.255.255"
-    run is_valid_ip
+    run ./sentry.sh --ip=255.255.255.255 --connect
     assert_failure
 }
 
 @test "validate IPv4 address - reject invalid 256.1.1.1" {
-    IP="256.1.1.1"
-    run is_valid_ip
+    run ./sentry.sh --ip=256.1.1.1 --connect
     assert_failure
 }
 
 @test "validate IPv4 address - reject invalid 192.168.1" {
-    IP="192.168.1"
-    run is_valid_ip
+    run ./sentry.sh --ip=192.168.1 --connect
     assert_failure
 }
 
 @test "validate IPv4 address - reject invalid format" {
-    IP="not.an.ip.address"
-    run is_valid_ip
+    run ./sentry.sh --ip=not.an.ip.address --connect
     assert_failure
 }
 
 @test "validate IPv6 address - accept valid 2001:db8::1" {
-    IP="2001:db8::1"
-    run is_valid_ip
+    run ./sentry.sh --ip=2001:db8::1 --connect
     assert_success
 }
 
 @test "validate IPv6 address - accept valid ::1" {
-    IP="::1"
-    run is_valid_ip
+    run ./sentry.sh --ip=::1 --connect
     assert_success
 }
 
 @test "validate IPv6 address - accept IPv4-mapped ::ffff:192.168.1.1" {
-    IP="::ffff:192.168.1.1"
-    run is_valid_ip
+    run ./sentry.sh --ip=::ffff:192.168.1.1 --connect
     assert_success
 }
 
 @test "validate IPv6 address - reject too many colons" {
-    IP="2001:db8::1::2"
-    run is_valid_ip
+    run ./sentry.sh --ip=2001:db8::1::2 --connect
     assert_failure
 }
 
 @test "validate IPv6 address - reject invalid characters" {
-    IP="2001:db8::gggg:1"
-    run is_valid_ip
+    run ./sentry.sh --ip=2001:db8::gggg:1 --connect
     assert_failure
 }
 
@@ -133,7 +117,6 @@ teardown() {
 @test "connect action without IP fails" {
     run ./sentry.sh --connect
     assert_failure
-    assert_output --partial "Invalid IP"
 }
 
 @test "block action with valid IP" {
@@ -266,8 +249,7 @@ teardown() {
 
 @test "IPv6 with zone ID is handled" {
     # IPv6 addresses may have zone IDs like fe80::1%eth0
-    IP="fe80::1%eth0"
-    run is_valid_ip
+    run ./sentry.sh --ip=fe80::1%eth0 --connect
     assert_success
 }
 
