@@ -8,13 +8,13 @@ This directory contains the test suite for sentry, using standard shell tools.
 ```bash
 make test
 # or
-./t/run-tests.sh
+./test/run-tests.sh
 ```
 
 ### Run individual tests
 ```bash
-./t/01-syntax.sh      # Bash syntax checks
-./t/02-shellcheck.sh  # ShellCheck validation
+./test/01-syntax.sh      # Bash syntax checks
+./test/02-shellcheck.sh  # ShellCheck validation
 ```
 
 ## Test Infrastructure
@@ -31,7 +31,7 @@ make test
 
 ## Adding New Tests
 
-1. Create a new test script: `t/NN-testname.sh`
+1. Create a new test script: `test/NN-testname.sh`
 2. Make it executable: `chmod +x t/NN-testname.sh`
 3. Ensure it exits with 0 on success, non-zero on failure
 4. The test runner will automatically discover and run it

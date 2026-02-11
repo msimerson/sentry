@@ -4,6 +4,7 @@ all: test
 
 test:
 	@./test/run-tests.sh
+	@./test/bats/bin/bats test/*.bats
 
 install:
 	@echo "Installing sentry.sh to /var/db/sentry/"
