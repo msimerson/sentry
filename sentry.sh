@@ -553,11 +553,11 @@ main() {
                 ACTION="delist"
                 shift
                 ;;
-            --report)
+            --report|-r)
                 ACTION="report"
                 shift
                 ;;
-            --verbose)
+            --verbose|-v)
                 VERBOSE=1
                 shift
                 ;;
