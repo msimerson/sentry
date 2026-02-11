@@ -2,7 +2,8 @@
 
 # check_sentry - a nagios plugin for checking if sentry is active
 # by Matt Simerson
-# Dec 10, 2013 - initial writing
+# 2013-12-10 - initial writing
+# 2026-02-10 - extended for bash version
 
 # INSTRUCTIONS
 # install this script in your nagios libexec dir (check nrpe.cfg)
@@ -12,17 +13,18 @@
 #    command[check_sentry]=/usr/local/libexec/nagios/check_sentry
 #
 # and restart nrpe:
-#    service nrpe2 restart
+#    service nrpe restart
 #
 # install this script in your nagios libexec dir (check nrpe.cfg)
 
 SENTRY_DIR=/var/db/sentry
-SENTRY_BIN="$SENTRY_DIR/sentry.pl"
+SENTRY_BIN_PL="$SENTRY_DIR/sentry.pl"
+SENTRY_BIN_SH="$SENTRY_DIR/sentry"
 GREP=/usr/bin/grep
 
 if [ ! -x $GREP ]; then
     echo "ERROR: edit check_sentry and set GREP"
-    GREP=grep
+    GREP="grep"
 fi
 
 echoerr() { echo "$@" >&2; }
@@ -38,17 +40,22 @@ if [ $? -ne 0 ]; then
     exit 2
 fi
 
-if [ ! -x $SENTRY_BIN ]; then
-    echoerr "sentry not executable by k$USER!"
-    if [ ! -d $SENTRY_DIR ]; then
-        echo "sentry dir ($SENTRY_DIR) doesn't exist!"
-        exit 2
-    fi
-
-    echo "OK - sentry appears installed and active"
+# Check for either bash or perl version
+if [ -x "$SENTRY_BIN_SH" ]; then
+    echo "OK - sentry (bash) installed and active"
     exit 0
 fi
 
+if [ -x "$SENTRY_BIN_PL" ]; then
+    echo "OK - sentry (perl) installed and active"
+    exit 0
+fi
 
-echo "OK - sentry installed and active"
+echoerr "sentry not executable by $USER!"
+if [ ! -d $SENTRY_DIR ]; then
+    echo "sentry dir ($SENTRY_DIR) doesn't exist!"
+    exit 2
+fi
+
+echo "OK - sentry appears installed and active"
 exit 0

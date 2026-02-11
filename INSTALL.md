@@ -4,42 +4,44 @@
 
 ```sh
 bash || sh
-export SENTRY_URL=https://raw.githubusercontent.com/msimerson/sentry/master/sentry.pl
+export SENTRY_URL=https://raw.githubusercontent.com/msimerson/sentry/master/sentry.sh
 curl -O $SENTRY_URL || wget $SENTRY_URL || fetch --no-verify-peer $SENTRY_URL
+chmod 755 sentry.sh
 ```
 
-### Run it:
+## Install
 
 ```sh
-perl sentry.pl --update
+mkdir -p /var/db/sentry
+mv sentry.sh /var/db/sentry/sentry
 ```
 
-Running `sentry.pl --update` will:
+## Configure tcpwrappers
 
-* create the sentry database (if needed)
-* install the perl script (if needed)
-* prompt you to edit /etc/hosts.allow (if needed)
+Add these lines near the top of your `/etc/hosts.allow` file:
 
-That's all.
+```
+sshd : /var/db/sentry/hosts.deny : deny
+sshd : ALL : spawn /var/db/sentry/sentry --connect --ip=%a : allow
+```
+
+## Test
+
+```sh
+/var/db/sentry/sentry --report
+```
+
+That's all!
 
 ## Upgrading
 
-### Easy Way
 ```sh
-perl /var/db/sentry/sentry.pl --update
+cd /var/db/sentry
+curl -o sentry https://raw.githubusercontent.com/msimerson/sentry/master/sentry.sh
+chmod 755 sentry
 ```
 
-### Hard Way
+## Requirements
 
-download as above
-
-```sh
-diff sentry.pl /var/db/sentry/sentry.pl
-```
-
-resolve any configuration differences
-
-```sh
-cp sentry.pl /var/db/sentry/sentry.pl
-chmod 755 /var/db/sentry/sentry.pl
-```
+- Bash (4.0 or later)
+- SQLite3

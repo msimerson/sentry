@@ -1,3 +1,6 @@
 *.bak
 *~$
 MANIFEST.bak
+.tmp
+*.db
+*.db-*
